@@ -6,10 +6,12 @@ import { useAuth } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import type { LeaderboardEntry, RoomFeedEvent } from '@/lib/types/room';
 
-const supabaseRealtime = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabaseRealtime() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 function getEventDot(eventType: string): string {
   const map: Record<string, string> = {
@@ -143,36 +145,40 @@ export default function RoomPage() {
   }, [fetchRoomInfo, fetchLeaderboard, fetchFeed, roomName]);
 
   useEffect(() => {
-    const channel = supabaseRealtime
-      .channel(`room-${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_daily_log',
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          fetchLeaderboard();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_events',
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          fetchFeed();
-        }
-      )
-      .subscribe((status: string) => {
-        setIsLive(status === 'SUBSCRIBED');
-        console.log('[Realtime] Status:', status);
-      });
+    const supabase = getSupabaseRealtime();
+
+    const channel = supabase
+      ? supabase
+          .channel(`room-${roomId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'room_daily_log',
+              filter: `room_id=eq.${roomId}`,
+            },
+            () => {
+              fetchLeaderboard();
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'room_events',
+              filter: `room_id=eq.${roomId}`,
+            },
+            () => {
+              fetchFeed();
+            }
+          )
+          .subscribe((status: string) => {
+            setIsLive(status === 'SUBSCRIBED');
+            console.log('[Realtime] Status:', status);
+          })
+      : null;
 
     const pollInterval = setInterval(() => {
       if (!isLive) {
@@ -182,7 +188,7 @@ export default function RoomPage() {
     }, 10000);
 
     return () => {
-      supabaseRealtime.removeChannel(channel);
+      if (supabase && channel) supabase.removeChannel(channel);
       clearInterval(pollInterval);
     };
   }, [roomId, isLive, fetchLeaderboard, fetchFeed]);
