@@ -323,7 +323,35 @@ export async function evaluateCode(
   console.log('[Gemini:evaluateCode] Model: gemini-2.5-flash');
   console.log('───────────────────────────────────');
 
-    const prompt = `You are a coding instructor evaluating a student's code submission.
+    const isTextAnswer = language === 'text';
+
+    const prompt = isTextAnswer
+      ? `You are a coding instructor evaluating a student's written answer.
+
+Task title: "${taskTitle}"
+Task description: "${taskDescription}"
+
+Student's written answer:
+"""
+${code}
+"""
+
+Evaluate the written answer and return ONLY valid JSON with this structure:
+{
+  "passed": boolean,
+  "score": number (0-100, how well it addresses the task),
+  "feedback": "string (1-2 sentence overall verdict — be encouraging)",
+  "hints": ["string", "string"] (1-3 specific, actionable hints if score < 80, empty array if passed well)
+}
+
+Rules:
+- passed = true if score >= 70
+- Evaluate based on conceptual understanding, accuracy, and completeness
+- The answer does not need to contain code — a clear text explanation is valid
+- Be encouraging even when the answer is incomplete
+- hints should point out missing concepts or inaccuracies
+No explanation. No markdown. Only the JSON object.`
+      : `You are a coding instructor evaluating a student's code submission.
 
 Task title: "${taskTitle}"
 Task description: "${taskDescription}"
