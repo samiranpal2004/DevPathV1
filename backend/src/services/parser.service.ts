@@ -124,10 +124,22 @@ export async function parseUrl(
     skillTier = 'beginner',
     fallbackTopic: string | null = null,
 ): Promise<ParseResult> {
+    console.log('▶▶▶ PARSER PIPELINE START');
+    console.log('[Parser] User ID:', userId);
+    console.log('[Parser] URL:', url);
+    console.log('[Parser] Skill tier:', skillTier);
+    console.log('[Parser] Fallback topic:', fallbackTopic);
+    console.log('[Parser] Cache key:', buildCacheKey(url, userId, skillTier));
+    console.log('[Parser] Timestamp:', new Date().toISOString());
+
     // Step 1 — cache check
     const cached = await getCachedPlan(url, userId);
     if (cached) {
+        console.log('[Parser] ✅ Cache HIT — returning cached plan');
+        console.log('[Parser] Cached plan title:', cached.title);
         return { plan: cached, fromCache: true, fallback: null };
+    } else {
+        console.log('[Parser] Cache MISS — proceeding to Gemini');
     }
 
     // Step 2 — URL type detection
@@ -164,6 +176,9 @@ export async function parseUrl(
     } catch (err) {
         if (isQuotaError(err)) {
             // Step 5 — quota fallback: default plan
+            console.error('[Parser] ❌ All Gemini calls failed');
+            console.error('[Parser] Using hardcoded default plan');
+            console.error('[Parser] This means GEMINI_API_KEY may be wrong');
             const defaultPlan = getDefaultPlan('javascript');
             const stored = await storePlan(userId, url, 'default', defaultPlan, skillTier);
             return { plan: stored, fromCache: false, fallback: 'quota_default' };
@@ -172,12 +187,17 @@ export async function parseUrl(
         // Step 4 — generic parse fail: topic fallback
         if (fallbackTopic) {
             try {
+                console.warn('[Parser] ⚠️  Gemini failed — using topic fallback');
+                console.warn('[Parser] Fallback reason:', (err as Error).message);
                 const rawTopicResponse = await generateTopicCurriculumRaw(fallbackTopic, skillTier);
                 parsedPlan = safeParseGeminiJson(rawTopicResponse) as Record<string, unknown>;
                 validateParsedPlan(parsedPlan);
                 usedFallback = 'topic';
             } catch (topicErr) {
                 if (isQuotaError(topicErr)) {
+                    console.error('[Parser] ❌ All Gemini calls failed');
+                    console.error('[Parser] Using hardcoded default plan');
+                    console.error('[Parser] This means GEMINI_API_KEY may be wrong');
                     const defaultPlan = getDefaultPlan('javascript');
                     const stored = await storePlan(userId, url, 'default', defaultPlan, skillTier);
                     return { plan: stored, fromCache: false, fallback: 'quota_default' };
@@ -186,6 +206,9 @@ export async function parseUrl(
             }
         } else {
             // No topic provided — return default plan
+            console.error('[Parser] ❌ All Gemini calls failed');
+            console.error('[Parser] Using hardcoded default plan');
+            console.error('[Parser] This means GEMINI_API_KEY may be wrong');
             const defaultPlan = getDefaultPlan('javascript');
             const stored = await storePlan(userId, url, 'default', defaultPlan, skillTier);
             return { plan: stored, fromCache: false, fallback: 'parse_default' };

@@ -9,6 +9,31 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
+function apiKeyPrefix(): string {
+  return `${process.env.GEMINI_API_KEY?.slice(0, 8) ?? 'MISSING'}...`;
+}
+
+function logGeminiError(scope: string, err: unknown): void {
+  const error = err as Error;
+  const msg = error.message?.toLowerCase?.() ?? String(err).toLowerCase();
+  console.error('═══════════════════════════════════');
+  console.error(`[${scope}] FAILED`);
+  console.error(`[${scope}] Error type:`, error?.constructor?.name ?? typeof err);
+  console.error(`[${scope}] Error message:`, error?.message ?? String(err));
+  console.error(`[${scope}] Full error:`, err);
+  if (msg.includes('quota') || msg.includes('429')) {
+    console.error(`[${scope}] ⚠️  QUOTA ERROR DETECTED`);
+    console.error(`[${scope}] Key used:`, apiKeyPrefix());
+  }
+  if (msg.includes('api key') || msg.includes('auth') || msg.includes('unauthorized')) {
+    console.error(`[${scope}] ⚠️  AUTH ERROR DETECTED`);
+  }
+  if (msg.includes('not found') || msg.includes('404') || msg.includes('model')) {
+    console.error(`[${scope}] ⚠️  MODEL NOT FOUND / MODEL ACCESS ISSUE`);
+  }
+  console.error('═══════════════════════════════════');
+}
+
 export interface MicroLessonContext {
     topic: string;
     problem: string;
@@ -68,6 +93,14 @@ export async function parseVideoUrl(url: string): Promise<Record<string, unknown
 }
 
 export async function parseVideoUrlRaw(url: string): Promise<string> {
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:parseVideo] START');
+  console.log('[Gemini:parseVideo] URL:', url);
+  console.log('[Gemini:parseVideo] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:parseVideo] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:parseVideo] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
+
   // Step 1 — Extract video ID from URL
   // Handles all formats:
   // youtube.com/watch?v=ID
@@ -86,6 +119,7 @@ export async function parseVideoUrlRaw(url: string): Promise<string> {
   // exactly what the video is about
   if (videoId) {
     try {
+      console.log('[Gemini:parseVideo] Fetching oEmbed...');
       const oEmbedUrl =
         `https://www.youtube.com/oembed` +
         `?url=https://www.youtube.com/watch?v=${videoId}` +
@@ -105,19 +139,22 @@ export async function parseVideoUrlRaw(url: string): Promise<string> {
         ]
           .filter(Boolean)
           .join('\n');
-
-        console.log('[Gemini] oEmbed success:', videoContext);
+        console.log('[Gemini:parseVideo] oEmbed result:', videoContext || 'FAILED — using URL only');
       } else {
         console.warn(
-          '[Gemini] oEmbed returned non-OK status:', 
+          '[Gemini:parseVideo] oEmbed returned non-OK status:', 
           response.status
         );
+        console.log('[Gemini:parseVideo] oEmbed result:', 'FAILED — using URL only');
       }
     } catch (err) {
       // oEmbed failed — continue with URL only
       // Gemini will still try its best
-      console.warn('[Gemini] oEmbed fetch failed:', err);
+      console.warn('[Gemini:parseVideo] oEmbed fetch failed:', err);
+      console.log('[Gemini:parseVideo] oEmbed result:', 'FAILED — using URL only');
     }
+  } else {
+    console.log('[Gemini:parseVideo] oEmbed result:', 'FAILED — using URL only');
   }
 
   // Step 3 — Build contextual prompt with real video info
@@ -136,21 +173,32 @@ Do NOT default to Python or JavaScript if the topic is different.
 
 ${VIDEO_PARSER_PROMPT_TEXT}`;
 
-  console.log('[Gemini] Sending prompt with context:', 
-    contextBlock);
+  console.log('[Gemini:parseVideo] Prompt context:', contextBlock);
+  console.log('[Gemini:parseVideo] Full prompt:', fullPrompt);
 
   // Step 4 — Call Gemini with text prompt (not fileData)
-  const model = genAI.getGenerativeModel({ 
-    model: 'gemini-2.5-pro' 
-  });
-  
-  const result = await model.generateContent(fullPrompt);
-  const text = result.response.text().trim();
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+    });
 
-  console.log('[Gemini] Raw response length:', text.length);
-  console.log('[Gemini] Response preview:', text.slice(0, 200));
+    console.log('[Gemini:parseVideo] Calling Gemini API...');
+    const startTime = Date.now();
+    const result = await model.generateContent(fullPrompt);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:parseVideo] Response received in ${elapsed}ms`);
 
-  return text;
+    const text = result.response.text().trim();
+    console.log('[Gemini:parseVideo] Response length:', text.length);
+    console.log('[Gemini:parseVideo] Response preview:', text.slice(0, 150));
+    console.log('[Gemini:parseVideo] SUCCESS');
+    console.log('═══════════════════════════════════');
+
+    return text;
+  } catch (err) {
+    logGeminiError('Gemini:parseVideo', err);
+    throw err;
+  }
 }
 
 /**
@@ -162,15 +210,38 @@ export async function generateTopicCurriculum(topic: string, skillTier = 'beginn
 }
 
 export async function generateTopicCurriculumRaw(topic: string, skillTier = 'beginner'): Promise<string> {
-  // Use flash for topic curriculum — saves pro quota 
-  // for video parsing where accuracy matters most
-  const model = genAI.getGenerativeModel({ 
-    model: 'gemini-2.5-flash' 
-  });
-  const result = await model.generateContent(
-    TOPIC_CURRICULUM_PROMPT(topic, skillTier)
-  );
-  return result.response.text().trim();
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:generateTopicCurriculum] START');
+  console.log('[Gemini:generateTopicCurriculum] Topic:', topic);
+  console.log('[Gemini:generateTopicCurriculum] Skill tier:', skillTier);
+  console.log('[Gemini:generateTopicCurriculum] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:generateTopicCurriculum] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:generateTopicCurriculum] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
+
+  try {
+    const prompt = TOPIC_CURRICULUM_PROMPT(topic, skillTier);
+    console.log('[Gemini:generateTopicCurriculum] Prompt:', prompt);
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+    });
+    console.log('[Gemini:generateTopicCurriculum] Calling Gemini API...');
+    const startTime = Date.now();
+    const result = await model.generateContent(prompt);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:generateTopicCurriculum] Response received in ${elapsed}ms`);
+
+    const text = result.response.text().trim();
+    console.log('[Gemini:generateTopicCurriculum] Response length:', text.length);
+    console.log('[Gemini:generateTopicCurriculum] Response preview:', text.slice(0, 150));
+    console.log('[Gemini:generateTopicCurriculum] SUCCESS');
+    console.log('═══════════════════════════════════');
+    return text;
+  } catch (err) {
+    logGeminiError('Gemini:generateTopicCurriculum', err);
+    throw err;
+  }
 }
 
 export interface QuizQuestion {
@@ -183,7 +254,14 @@ export interface QuizQuestion {
  * Generate 5 skill-assessment questions for the given goal using Gemini 1.5 Flash.
  */
 export async function generateSkillQuiz(goal: string): Promise<QuizQuestion[]> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:generateSkillQuiz] START');
+  console.log('[Gemini:generateSkillQuiz] Goal:', goal);
+  console.log('[Gemini:generateSkillQuiz] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:generateSkillQuiz] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:generateSkillQuiz] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
+
     const prompt = `Generate exactly 5 multiple-choice questions to assess a beginner's coding knowledge for the goal: "${goal}".
 Return ONLY valid JSON as an array of 5 objects:
 [
@@ -195,10 +273,28 @@ Return ONLY valid JSON as an array of 5 objects:
 ]
 Questions should cover: variables, loops, functions, debugging, and data structures relevant to the goal.
 No explanation. No markdown. Only the JSON array.`;
+
+  try {
+    console.log('[Gemini:generateSkillQuiz] Prompt:', prompt);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('[Gemini:generateSkillQuiz] Calling Gemini API...');
+    const startTime = Date.now();
     const result = await model.generateContent(prompt);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:generateSkillQuiz] Response received in ${elapsed}ms`);
+
     const text = result.response.text().trim();
+    console.log('[Gemini:generateSkillQuiz] Response length:', text.length);
+    console.log('[Gemini:generateSkillQuiz] Response preview:', text.slice(0, 150));
     const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    return JSON.parse(stripped) as QuizQuestion[];
+    const parsed = JSON.parse(stripped) as QuizQuestion[];
+    console.log('[Gemini:generateSkillQuiz] SUCCESS');
+    console.log('═══════════════════════════════════');
+    return parsed;
+  } catch (err) {
+    logGeminiError('Gemini:generateSkillQuiz', err);
+    throw err;
+  }
 }
 
 export interface CodeEvalResult {
@@ -218,7 +314,15 @@ export async function evaluateCode(
     taskTitle: string,
     taskDescription: string,
 ): Promise<CodeEvalResult> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:evaluateCode] START');
+  console.log('[Gemini:evaluateCode] Language:', language);
+  console.log('[Gemini:evaluateCode] Task title:', taskTitle);
+  console.log('[Gemini:evaluateCode] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:evaluateCode] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:evaluateCode] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
+
     const prompt = `You are a coding instructor evaluating a student's code submission.
 
 Task title: "${taskTitle}"
@@ -245,24 +349,68 @@ Rules:
 - hints should address specific issues in their code
 No explanation. No markdown. Only the JSON object.`;
 
+  try {
+    console.log('[Gemini:evaluateCode] Prompt:', prompt);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('[Gemini:evaluateCode] Calling Gemini API...');
+    const startTime = Date.now();
     const result = await model.generateContent(prompt);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:evaluateCode] Response received in ${elapsed}ms`);
+
     const text = result.response.text().trim();
+    console.log('[Gemini:evaluateCode] Response length:', text.length);
+    console.log('[Gemini:evaluateCode] Response preview:', text.slice(0, 150));
     const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    return JSON.parse(stripped) as CodeEvalResult;
+    const parsed = JSON.parse(stripped) as CodeEvalResult;
+    console.log('[Gemini:evaluateCode] SUCCESS');
+    console.log('═══════════════════════════════════');
+    return parsed;
+  } catch (err) {
+    logGeminiError('Gemini:evaluateCode', err);
+    throw err;
+  }
 }
 
 /**
  * Get a micro-lesson for a stuck learner using Gemini 1.5 Flash.
  */
 export async function getMicroLesson({ topic, problem, errorTypes, skillTier }: MicroLessonContext): Promise<string> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:getMicroLesson] START');
+  console.log('[Gemini:getMicroLesson] Topic:', topic);
+  console.log('[Gemini:getMicroLesson] Skill tier:', skillTier);
+  console.log('[Gemini:getMicroLesson] Error types:', errorTypes);
+  console.log('[Gemini:getMicroLesson] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:getMicroLesson] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:getMicroLesson] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
+
     const prompt = `The learner is stuck on ${topic}.
 Problem: ${problem}.
 Their recent errors: ${errorTypes.join(', ')}.
 Give a targeted 3-step micro-lesson that directly addresses their error pattern.
 Do not solve the problem. Guide them.`;
+
+  try {
+    console.log('[Gemini:getMicroLesson] Prompt:', prompt);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('[Gemini:getMicroLesson] Calling Gemini API...');
+    const startTime = Date.now();
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:getMicroLesson] Response received in ${elapsed}ms`);
+
+    const text = result.response.text().trim();
+    console.log('[Gemini:getMicroLesson] Response length:', text.length);
+    console.log('[Gemini:getMicroLesson] Response preview:', text.slice(0, 150));
+    console.log('[Gemini:getMicroLesson] SUCCESS');
+    console.log('═══════════════════════════════════');
+    return text;
+  } catch (err) {
+    logGeminiError('Gemini:getMicroLesson', err);
+    throw err;
+  }
 }
 
 /**
@@ -297,7 +445,13 @@ export async function analyzeVideoForQuiz(url: string): Promise<{
     analysis: VideoAnalysis;
     questions: QuizQuestion[];
 }> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:analyzeVideoForQuiz] START');
+  console.log('[Gemini:analyzeVideoForQuiz] URL:', url);
+  console.log('[Gemini:analyzeVideoForQuiz] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:analyzeVideoForQuiz] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:analyzeVideoForQuiz] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
 
     const prompt = `Watch this YouTube video carefully and do TWO things:
 
@@ -323,13 +477,30 @@ Return ONLY valid JSON with this structure:
 }
 No explanation. No markdown. Only the JSON object.`;
 
-    const result = await model.generateContent([
+    try {
+      console.log('[Gemini:analyzeVideoForQuiz] Prompt:', prompt);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      console.log('[Gemini:analyzeVideoForQuiz] Calling Gemini API...');
+      const startTime = Date.now();
+      const result = await model.generateContent([
         { fileData: { fileUri: url, mimeType: 'video/mp4' } },
         { text: prompt },
-    ]);
-    const text = result.response.text().trim();
-    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    return JSON.parse(stripped) as { analysis: VideoAnalysis; questions: QuizQuestion[] };
+      ]);
+      const elapsed = Date.now() - startTime;
+      console.log(`[Gemini:analyzeVideoForQuiz] Response received in ${elapsed}ms`);
+
+      const text = result.response.text().trim();
+      console.log('[Gemini:analyzeVideoForQuiz] Response length:', text.length);
+      console.log('[Gemini:analyzeVideoForQuiz] Response preview:', text.slice(0, 150));
+      const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      const parsed = JSON.parse(stripped) as { analysis: VideoAnalysis; questions: QuizQuestion[] };
+      console.log('[Gemini:analyzeVideoForQuiz] SUCCESS');
+      console.log('═══════════════════════════════════');
+      return parsed;
+    } catch (err) {
+      logGeminiError('Gemini:analyzeVideoForQuiz', err);
+      throw err;
+    }
 }
 
 /**
@@ -343,7 +514,15 @@ export async function generatePersonalizedPlan(
     skillLevel: string,
     dailyTimeMinutes: number = 20,
 ): Promise<string> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  console.log('═══════════════════════════════════');
+  console.log('[Gemini:generatePersonalizedPlan] START');
+  console.log('[Gemini:generatePersonalizedPlan] Topic:', analysis.topic);
+  console.log('[Gemini:generatePersonalizedPlan] Skill level:', skillLevel);
+  console.log('[Gemini:generatePersonalizedPlan] Daily minutes:', dailyTimeMinutes);
+  console.log('[Gemini:generatePersonalizedPlan] API Key present:', !!process.env.GEMINI_API_KEY);
+  console.log('[Gemini:generatePersonalizedPlan] API Key prefix:', apiKeyPrefix());
+  console.log('[Gemini:generatePersonalizedPlan] Model: gemini-2.5-flash');
+  console.log('───────────────────────────────────');
 
     const prompt = `You are building a personalised coding study plan.
 
@@ -382,8 +561,25 @@ Return ONLY valid JSON with this structure:
 }
 No explanation. No markdown. Only the JSON object.`;
 
+  try {
+    console.log('[Gemini:generatePersonalizedPlan] Prompt:', prompt);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    console.log('[Gemini:generatePersonalizedPlan] Calling Gemini API...');
+    const startTime = Date.now();
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const elapsed = Date.now() - startTime;
+    console.log(`[Gemini:generatePersonalizedPlan] Response received in ${elapsed}ms`);
+
+    const text = result.response.text().trim();
+    console.log('[Gemini:generatePersonalizedPlan] Response length:', text.length);
+    console.log('[Gemini:generatePersonalizedPlan] Response preview:', text.slice(0, 150));
+    console.log('[Gemini:generatePersonalizedPlan] SUCCESS');
+    console.log('═══════════════════════════════════');
+    return text;
+  } catch (err) {
+    logGeminiError('Gemini:generatePersonalizedPlan', err);
+    throw err;
+  }
 }
 
 /**
