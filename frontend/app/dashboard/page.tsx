@@ -1,10 +1,54 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 
 import { Navbar } from "@/components/Navbar";
 import { VideoMission } from "@/components/VideoMission";
 import { ActiveMission } from "@/components/ActiveMission";
+
+function RoomEntrySection() {
+  const router = useRouter();
+  const [joinCode, setJoinCode] = useState("");
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+      <h2 className="text-white font-bold text-lg mb-1">Rooms</h2>
+      <p className="text-gray-400 text-sm mb-5">Race with friends through the same daily plan.</p>
+
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => router.push('/rooms/create')}
+          className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-500 text-white font-semibold transition-colors"
+        >
+          + Create Room
+        </button>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase().slice(0, 6))}
+            placeholder="Enter code (e.g. KGEC42)"
+            className="flex-1 px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white placeholder-gray-600 font-mono focus:outline-none focus:border-green-500 transition-colors"
+          />
+          <button
+            onClick={() => {
+              if (joinCode.length === 6) {
+                router.push(`/join/${joinCode}`);
+              }
+            }}
+            disabled={joinCode.length !== 6}
+            className="px-5 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Join
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { user } = useUser();
@@ -26,6 +70,11 @@ export default function Dashboard() {
 
         {/* Active Mission — real data from /api/mission/today */}
         <ActiveMission />
+
+        {/* Rooms entry point */}
+        <section className="mt-8">
+          <RoomEntrySection />
+        </section>
 
         {/* Low Profile Heatmap Strip */}
         <footer className="mt-20">

@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { LeaderboardEntry, Room, RoomFeedEvent, RoomPreview } from '../types/room';
 
 export type RoomType =
   | 'daily_sprint'
@@ -7,36 +8,6 @@ export type RoomType =
   | 'topic_battle'
   | 'cohort'
   | 'ranked_arena';
-
-export interface Room {
-  id: string;
-  code: string;
-  name: string;
-  type: RoomType;
-  owner_id: string;
-  max_members: number;
-  status: 'pending' | 'active' | 'completed' | 'archived';
-  is_private: boolean;
-  created_at: string;
-  ends_at: string | null;
-}
-
-export interface LeaderboardEntry {
-  display_name: string;
-  tasks_done: number;
-  xp_earned: number;
-  finish_position: number | null;
-  started_at: string | null;
-  completed_at: string | null;
-}
-
-export interface RoomFeedEvent {
-  id: string;
-  user_id: string;
-  event_type: string;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-}
 
 /** Create a new room. ownerId is the current user's UUID. */
 export async function createRoom(payload: {
@@ -84,4 +55,43 @@ export async function nudgeMember(
 ): Promise<{ success: true; data: { message: string } }> {
   const res = await api.post(`/api/rooms/${roomId}/nudge/${targetUserId}`, { nudgerId });
   return res.data;
+}
+
+export async function getRoomById(
+  roomId: string,
+  token: string
+): Promise<Room> {
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/rooms/${roomId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message ?? 'Failed to fetch room');
+  }
+  const data = await res.json();
+  return data.data as Room;
+}
+
+export async function getRoomPreview(
+  code: string
+): Promise<RoomPreview> {
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/rooms/preview/${code}`
+  );
+  if (res.status === 404) {
+    throw Object.assign(
+      new Error('Room not found'),
+      { code: 'NOT_FOUND' }
+    );
+  }
+  if (!res.ok) {
+    throw new Error('Failed to fetch room preview');
+  }
+  const data = await res.json();
+  return data.data as RoomPreview;
 }
