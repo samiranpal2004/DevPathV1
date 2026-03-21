@@ -4,6 +4,7 @@ import { BadgeService } from '../services/badge.service';
 import { HeatmapService } from '../services/heatmap.service';
 import { RoomService } from '../services/room.service';
 import { supabaseAdmin } from '../lib/supabase';
+import { evaluateCode, isQuotaError } from '../services/gemini.service';
 
 const router = Router();
 const xpService = new XpService();
@@ -866,6 +867,90 @@ router.post('/stuck', async (req: Request, res: Response): Promise<Response> => 
   } catch (error) {
     console.error('mission/stuck error:', error);
     return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to get hint');
+  }
+});
+
+/**
+ * POST /api/mission/evaluate-code
+ * Gemini evaluates the submitted code against the task description.
+ * Awards XP if passed.
+ */
+router.post('/evaluate-code', async (req: Request, res: Response): Promise<Response> => {
+  const userId = extractUserId(req);
+  if (!userId) return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+
+  const { code, language, task_title, task_description, plan_id, day_number, task_key } =
+    req.body as {
+      code?: unknown;
+      language?: unknown;
+      task_title?: unknown;
+      task_description?: unknown;
+      plan_id?: unknown;
+      day_number?: unknown;
+      task_key?: unknown;
+    };
+
+  if (typeof code !== 'string' || code.trim().length === 0)
+    return sendError(res, 400, 'INVALID_CODE', 'code must be a non-empty string');
+  if (typeof language !== 'string')
+    return sendError(res, 400, 'INVALID_LANGUAGE', 'language is required');
+  if (typeof task_title !== 'string' || typeof task_description !== 'string')
+    return sendError(res, 400, 'INVALID_TASK', 'task_title and task_description are required');
+
+  try {
+    const evalResult = await evaluateCode(code, language, task_title, task_description);
+
+    let xpAwarded = 0;
+    let levelUpEvent = null;
+
+    if (evalResult.passed) {
+      // XP: 30 for practice key, 20 for task1/task2
+      const xpAmount = task_key === 'practice' ? 30 : 20;
+      xpAwarded = xpAmount;
+
+      levelUpEvent = await xpService.awardXp({
+        userId,
+        amount: xpAmount,
+        reason: task_key === 'practice' ? 'practice_solved' : 'task_complete',
+        taskId: typeof day_number === 'number'
+          ? `day_${day_number}_${String(task_key)}`
+          : undefined,
+      });
+
+      await heatmapService.logContributionEvent({
+        userId,
+        eventType: task_key === 'practice' ? 'practice_solved' : 'solo_task',
+        delta: 1.0,
+      });
+
+      // Log practice attempt if plan_id provided
+      if (typeof plan_id === 'string' && typeof day_number === 'number') {
+        await supabaseAdmin.from('practice_attempts').insert({
+          user_id: userId,
+          plan_id,
+          day_number,
+          passed: true,
+          hint_used: false,
+          submitted_code: code,
+        });
+      }
+    }
+
+    const newXpProfile = await xpService.getUserXpProfile(userId);
+
+    return sendSuccess(res, 200, {
+      ...evalResult,
+      xpAwarded,
+      newTotalXp: newXpProfile.totalXp,
+      newLevel: newXpProfile.level,
+      levelUp: levelUpEvent ?? null,
+    });
+  } catch (err) {
+    if (isQuotaError(err)) {
+      return sendError(res, 429, 'QUOTA_EXCEEDED', 'Gemini quota reached. Try again shortly.');
+    }
+    console.error('evaluate-code error:', err);
+    return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to evaluate code');
   }
 });
 

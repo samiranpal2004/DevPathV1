@@ -10,6 +10,8 @@ import {
     skipDay,
     getStuckHint,
 } from '../services/mission.service';
+import { evaluateCode, isQuotaError } from '../services/gemini.service';
+import { supabaseAdmin } from '../lib/supabase';
 
 const router = express.Router();
 
@@ -128,6 +130,97 @@ router.post('/stuck', validate(stuckSchema), async (req: Request, res: Response)
     } catch (err) {
         console.error('mission/stuck error:', (err as Error).message);
         res.status(500).json({ error: 'Failed to get hint' });
+    }
+});
+
+// ─── POST /api/mission/evaluate-code ─────────────────────────────────────────
+/**
+ * Gemini Flash evaluates the submitted code against the task description.
+ * Awards XP if passed (score >= 70).
+ */
+router.post('/evaluate-code', async (req: Request, res: Response): Promise<void> => {
+    const userId = req.userId;
+
+    const { code, language, task_title, task_description, plan_id, day_number, task_key } =
+        req.body as {
+            code?: string;
+            language?: string;
+            task_title?: string;
+            task_description?: string;
+            plan_id?: string;
+            day_number?: number;
+            task_key?: string;
+        };
+
+    if (!code || !code.trim()) {
+        res.status(400).json({ error: 'code is required' });
+        return;
+    }
+    if (!language) { res.status(400).json({ error: 'language is required' }); return; }
+    if (!task_title || !task_description) {
+        res.status(400).json({ error: 'task_title and task_description are required' });
+        return;
+    }
+
+    try {
+        const evalResult = await evaluateCode(code, language, task_title, task_description);
+
+        let xpAwarded = 0;
+
+        if (evalResult.passed) {
+            const xpAmount = task_key === 'practice' ? 30 : 20;
+            xpAwarded = xpAmount;
+
+            // Award XP event
+            await supabaseAdmin.from('xp_events').insert({
+                user_id: userId,
+                amount: xpAmount,
+                reason: task_key === 'practice' ? 'practice_solved' : 'task_complete',
+                task_id: day_number ? `day_${day_number}_${task_key}` : null,
+            });
+
+            // Heatmap contribution
+            await supabaseAdmin.from('contribution_events').insert({
+                user_id: userId,
+                date: new Date().toISOString().slice(0, 10),
+                event_type: task_key === 'practice' ? 'practice_solved' : 'solo_task',
+                delta: 1.0,
+            });
+
+            // Log practice attempt
+            if (plan_id && day_number) {
+                await supabaseAdmin.from('practice_attempts').insert({
+                    user_id: userId,
+                    plan_id,
+                    day_number,
+                    passed: true,
+                    hint_used: false,
+                    submitted_code: code,
+                });
+            }
+        }
+
+        // Get updated XP total
+        const { data: xpRows } = await supabaseAdmin
+            .from('xp_events')
+            .select('amount')
+            .eq('user_id', userId);
+        const newTotalXp = (xpRows ?? []).reduce((sum, r) => sum + (r.amount as number), 0);
+
+        res.status(200).json({
+            data: {
+                ...evalResult,
+                xpAwarded,
+                newTotalXp,
+            },
+        });
+    } catch (err) {
+        if (isQuotaError(err)) {
+            res.status(429).json({ error: 'quota_exceeded', message: 'Gemini quota reached. Try again shortly.' });
+            return;
+        }
+        console.error('evaluate-code error:', (err as Error).message);
+        res.status(500).json({ error: 'Failed to evaluate code' });
     }
 });
 
