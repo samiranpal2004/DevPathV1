@@ -17,7 +17,8 @@ exports.isQuotaError = isQuotaError;
 const generative_ai_1 = require("@google/generative-ai");
 const genAI = new generative_ai_1.GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 // Prompt template from CLAUDE.md — DO NOT change without team discussion
-const VIDEO_PARSER_PROMPT = (url) => `Watch this YouTube video: ${url}
+// NOTE: URL is passed via fileData (not in text) so Gemini actually watches the video.
+const VIDEO_PARSER_PROMPT_TEXT = `Watch this YouTube video carefully and analyse its full content.
 Return ONLY valid JSON with this structure:
 {
   "title": "string",
@@ -64,7 +65,12 @@ async function parseVideoUrl(url) {
 }
 async function parseVideoUrlRaw(url) {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
+    // Pass the YouTube URL as fileData so Gemini actually watches the video
+    // instead of just reading the URL string and hallucinating content.
+    const result = await model.generateContent([
+        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
+        { text: VIDEO_PARSER_PROMPT_TEXT },
+    ]);
     return result.response.text().trim();
 }
 /**

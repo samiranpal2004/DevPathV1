@@ -17,7 +17,8 @@ export interface MicroLessonContext {
 }
 
 // Prompt template from CLAUDE.md — DO NOT change without team discussion
-const VIDEO_PARSER_PROMPT = (url: string): string => `Watch this YouTube video: ${url}
+// NOTE: URL is passed via fileData (not in text) so Gemini actually watches the video.
+const VIDEO_PARSER_PROMPT_TEXT = `Watch this YouTube video carefully and analyse its full content.
 Return ONLY valid JSON with this structure:
 {
   "title": "string",
@@ -68,7 +69,12 @@ export async function parseVideoUrl(url: string): Promise<Record<string, unknown
 
 export async function parseVideoUrlRaw(url: string): Promise<string> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-  const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
+  // Pass the YouTube URL as fileData so Gemini actually watches the video
+  // instead of just reading the URL string and hallucinating content.
+  const result = await model.generateContent([
+    { fileData: { fileUri: url, mimeType: 'video/mp4' } },
+    { text: VIDEO_PARSER_PROMPT_TEXT },
+  ]);
   return result.response.text().trim();
 }
 
