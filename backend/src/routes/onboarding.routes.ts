@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate';
 import { quizResultSchema, preferencesSchema, parseUrlSchema } from '../schemas/onboarding';
 import { saveQuizResult, savePreferences, getPlanPreview, getUserPreferences } from '../services/onboarding.service';
 import { parseUrl, parseFromTopic } from '../services/parser.service';
+import { generateSkillQuiz, isQuotaError } from '../services/gemini.service';
 
 const router = express.Router();
 
@@ -20,6 +21,34 @@ function getUserId(req: Request, res: Response): string | null {
     }
     return userId;
 }
+
+// ─── POST /api/onboarding/generate-quiz ──────────────────────────────────────
+/**
+ * Generates 5 skill-assessment questions via Gemini for the given goal.
+ * Body: { goal: string }
+ */
+router.post('/generate-quiz', async (req: Request, res: Response): Promise<void> => {
+    const userId = getUserId(req, res);
+    if (!userId) return;
+
+    const { goal } = req.body as { goal?: string };
+    if (!goal) {
+        res.status(400).json({ error: 'goal is required' });
+        return;
+    }
+
+    try {
+        const questions = await generateSkillQuiz(goal);
+        res.status(200).json({ questions });
+    } catch (err) {
+        if (isQuotaError(err)) {
+            res.status(429).json({ error: 'quota_exceeded', message: 'Gemini quota reached. Please try again later.' });
+            return;
+        }
+        console.error('generate-quiz error:', (err as Error).message);
+        res.status(500).json({ error: 'Failed to generate quiz questions' });
+    }
+});
 
 // ─── POST /api/onboarding/quiz-result ────────────────────────────────────────
 

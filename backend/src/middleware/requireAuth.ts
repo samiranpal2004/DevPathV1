@@ -21,6 +21,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
   req.clerkUserId = clerkUserId;
   req.userId = toInternalUserId(clerkUserId);
+  // Inject so existing route handlers that read req.headers['x-user-id'] work transparently
+  req.headers['x-user-id'] = req.userId;
   next();
 }
 

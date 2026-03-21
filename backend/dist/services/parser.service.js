@@ -46,8 +46,7 @@ function buildCacheKey(url, userId, skillTier) {
  * Check if a parsed plan already exists for this user + url + skill_tier.
  * Returns the existing daily_plan row or null.
  */
-async function getCachedPlan(url, userId, skillTier) {
-    const cacheKey = buildCacheKey(url, userId, skillTier);
+async function getCachedPlan(url, userId) {
     const { data } = await supabase_1.supabaseAdmin
         .from('daily_plans')
         .select('*')
@@ -57,14 +56,7 @@ async function getCachedPlan(url, userId, skillTier) {
         .order('generated_at', { ascending: false })
         .limit(1)
         .single();
-    // Also store cache_key in metadata for demo-day precache lookup
-    const row = data;
-    if (row && row['cache_key'] === cacheKey)
-        return row;
-    // Fallback: match by url + user_id (cache_key may not exist on older rows)
-    if (row)
-        return row;
-    return null;
+    return data || null;
 }
 /**
  * Store a parsed plan in daily_plans.
@@ -72,7 +64,6 @@ async function getCachedPlan(url, userId, skillTier) {
 async function storePlan(userId, url, sourceType, parsedPlan, skillTier) {
     const checkpoints = parsedPlan.checkpoints;
     const totalDays = Array.isArray(checkpoints) ? checkpoints.length : 30;
-    const cacheKey = url ? buildCacheKey(url, userId, skillTier) : null;
     // Deactivate any existing active plan for this user
     await supabase_1.supabaseAdmin
         .from('daily_plans')
@@ -90,7 +81,6 @@ async function storePlan(userId, url, sourceType, parsedPlan, skillTier) {
         current_day: 1,
         status: 'active',
         checkpoints: checkpoints,
-        cache_key: cacheKey,
     })
         .select()
         .single();
@@ -103,7 +93,7 @@ async function storePlan(userId, url, sourceType, parsedPlan, skillTier) {
  */
 async function parseUrl(userId, url, skillTier = 'beginner', fallbackTopic = null) {
     // Step 1 — cache check
-    const cached = await getCachedPlan(url, userId, skillTier);
+    const cached = await getCachedPlan(url, userId);
     if (cached) {
         return { plan: cached, fromCache: true, fallback: null };
     }

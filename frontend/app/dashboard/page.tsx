@@ -3,6 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 
 import { Navbar } from "@/components/Navbar";
+import { VideoMission } from "@/components/VideoMission";
 
 export default function Dashboard() {
   const { user } = useUser();
@@ -112,6 +113,9 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
+
+        {/* Video Mission — paste YouTube link, get tasks, earn XP */}
+        <VideoMission />
 
         {/* Low Profile Heatmap Strip */}
         <footer className="mt-20">

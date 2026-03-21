@@ -10,14 +10,24 @@ router.post('/sync', requireAuth, async (req, res) => {
   try {
     const userId = req.userId;
     const clerkUserId = req.clerkUserId;
-    const clerkUser = await clerkClient.users.getUser(clerkUserId);
 
-    const email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
-    const displayName =
-      [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
-      email.split('@')[0] ||
-      'Learner';
-    const avatarUrl = clerkUser.imageUrl ?? null;
+    // Fetch Clerk profile — use safe fallbacks if the API call fails
+    let email = '';
+    let displayName = 'Learner';
+    let avatarUrl: string | null = null;
+
+    try {
+      const clerkUser = await clerkClient.users.getUser(clerkUserId);
+      email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
+      displayName =
+        [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') ||
+        email.split('@')[0] ||
+        'Learner';
+      avatarUrl = clerkUser.imageUrl ?? null;
+    } catch (clerkErr) {
+      console.warn('Could not fetch Clerk profile, using fallbacks:', clerkErr);
+      // Proceed with fallback values — still create the user row
+    }
 
     const { data: user, error } = await supabaseAdmin
       .from('users')
@@ -41,20 +51,21 @@ router.post('/sync', requireAuth, async (req, res) => {
       throw error;
     }
 
-    const { data: prefs } = await supabaseAdmin
+    // Auto-create default preferences if they don't exist so the user
+    // goes straight to the dashboard after signup / login.
+    await supabaseAdmin
       .from('user_preferences')
-      .select('user_id')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const needsOnboarding = !prefs;
+      .upsert(
+        { user_id: userId },
+        { onConflict: 'user_id', ignoreDuplicates: true }
+      );
 
     return res.json({
       success: true,
       data: {
         userId: user.id,
         displayName: user.display_name,
-        needsOnboarding,
+        needsOnboarding: false,
       },
     });
   } catch (error) {

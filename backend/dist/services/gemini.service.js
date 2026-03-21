@@ -4,6 +4,7 @@ exports.parseVideoUrl = parseVideoUrl;
 exports.parseVideoUrlRaw = parseVideoUrlRaw;
 exports.generateTopicCurriculum = generateTopicCurriculum;
 exports.generateTopicCurriculumRaw = generateTopicCurriculumRaw;
+exports.generateSkillQuiz = generateSkillQuiz;
 exports.getMicroLesson = getMicroLesson;
 exports.isQuotaError = isQuotaError;
 /**
@@ -16,7 +17,8 @@ exports.isQuotaError = isQuotaError;
 const generative_ai_1 = require("@google/generative-ai");
 const genAI = new generative_ai_1.GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 // Prompt template from CLAUDE.md — DO NOT change without team discussion
-const VIDEO_PARSER_PROMPT = (url) => `Watch this YouTube video: ${url}
+// NOTE: URL is passed via fileData (not in text) so Gemini actually watches the video.
+const VIDEO_PARSER_PROMPT_TEXT = `Watch this YouTube video carefully and analyse its full content.
 Return ONLY valid JSON with this structure:
 {
   "title": "string",
@@ -62,8 +64,13 @@ async function parseVideoUrl(url) {
     return extractJson(text);
 }
 async function parseVideoUrlRaw(url) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Pass the YouTube URL as fileData so Gemini actually watches the video
+    // instead of just reading the URL string and hallucinating content.
+    const result = await model.generateContent([
+        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
+        { text: VIDEO_PARSER_PROMPT_TEXT },
+    ]);
     return result.response.text().trim();
 }
 /**
@@ -74,15 +81,36 @@ async function generateTopicCurriculum(topic, skillTier = 'beginner') {
     return extractJson(text);
 }
 async function generateTopicCurriculumRaw(topic, skillTier = 'beginner') {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
     const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
     return result.response.text().trim();
+}
+/**
+ * Generate 5 skill-assessment questions for the given goal using Gemini 1.5 Flash.
+ */
+async function generateSkillQuiz(goal) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `Generate exactly 5 multiple-choice questions to assess a beginner's coding knowledge for the goal: "${goal}".
+Return ONLY valid JSON as an array of 5 objects:
+[
+  {
+    "question": "string",
+    "options": ["string", "string", "string", "string"],
+    "correctIndex": number
+  }
+]
+Questions should cover: variables, loops, functions, debugging, and data structures relevant to the goal.
+No explanation. No markdown. Only the JSON array.`;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped);
 }
 /**
  * Get a micro-lesson for a stuck learner using Gemini 1.5 Flash.
  */
 async function getMicroLesson({ topic, problem, errorTypes, skillTier }) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `The learner is stuck on ${topic}.
 Problem: ${problem}.
 Their recent errors: ${errorTypes.join(', ')}.

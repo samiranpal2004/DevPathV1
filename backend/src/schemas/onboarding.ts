@@ -1,13 +1,12 @@
 import Joi from 'joi';
 
 export const quizResultSchema = Joi.object({
-    // answers: array of 5 booleans (true = correct)
+    // answers: array of booleans (true = correct). Gemini may return 3–10 questions.
     answers: Joi.array()
         .items(Joi.boolean().required())
-        .length(5)
+        .min(1)
         .required()
         .messages({
-            'array.length': 'Exactly 5 answers required',
             'any.required': 'answers is required',
         }),
 });

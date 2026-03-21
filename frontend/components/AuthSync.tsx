@@ -9,13 +9,12 @@ export function AuthSync() {
   const { user } = useUser();
   const router = useRouter();
   const pathname = usePathname();
-  const needsOnboardingRef = useRef<boolean | null>(null);
   const isSyncingRef = useRef(false);
 
   useEffect(() => {
     if (!isLoaded) return;
 
-    // If user is not signed in and trying to access protected routes, redirect to sign-in
+    // Redirect unauthenticated users away from protected pages
     if (!isSignedIn && (pathname === '/dashboard' || pathname === '/onboarding' || pathname === '/')) {
       router.push('/sign-in');
       return;
@@ -24,71 +23,38 @@ export function AuthSync() {
     if (!isSignedIn || !user) return;
     if (pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up')) return;
 
-    async function ensureSyncAndRoute() {
+    if (isSyncingRef.current) return;
+
+    async function syncAndRoute() {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiBaseUrl) {
-        return;
-      }
+      if (!apiBaseUrl) return;
 
+      isSyncingRef.current = true;
       try {
-        if (needsOnboardingRef.current === null && !isSyncingRef.current) {
-          isSyncingRef.current = true;
+        const token = await getToken();
+        if (!token) return;
 
-          const token = await getToken();
-          if (!token) {
-            isSyncingRef.current = false;
-            return;
-          }
+        // Sync user to DB — creates default preferences if missing
+        await fetch(`${apiBaseUrl}/api/auth/sync`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
 
-          const res = await fetch(`${apiBaseUrl}/api/auth/sync`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (!res.ok) {
-            const errorText = await res.text();
-            console.error('Sync failed with status', res.status, ':', errorText);
-            try {
-              const errorJson = JSON.parse(errorText);
-              console.error('Parsed error:', errorJson);
-            } catch (e) {
-              // Response is not JSON
-            }
-            isSyncingRef.current = false;
-            return;
-          }
-
-          const data = await res.json();
-          needsOnboardingRef.current = Boolean(data?.data?.needsOnboarding);
-          isSyncingRef.current = false;
-        }
-
-        const needsOnboarding = needsOnboardingRef.current;
-        if (needsOnboarding === null) return;
-
-        if (needsOnboarding && pathname !== '/onboarding') {
-          router.push('/onboarding');
-          return;
-        }
-
-        if (!needsOnboarding && pathname === '/onboarding') {
-          router.push('/dashboard');
-          return;
-        }
-
-        if (!needsOnboarding && pathname === '/') {
+        // After login/signup always go to dashboard
+        if (pathname === '/' || pathname === '/onboarding') {
           router.push('/dashboard');
         }
       } catch (error) {
-        isSyncingRef.current = false;
         console.error('AuthSync error:', error);
+      } finally {
+        isSyncingRef.current = false;
       }
     }
 
-    void ensureSyncAndRoute();
+    void syncAndRoute();
   }, [getToken, isLoaded, isSignedIn, pathname, router, user]);
 
   return null;

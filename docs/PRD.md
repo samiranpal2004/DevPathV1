@@ -95,15 +95,15 @@ room with friends. Every action paints a square on a personal contribution board
 **Goal:** Place the user into the system with a personalised plan in under 2 minutes.
 
 Steps in order:
-1. **Goal selection** — Job prep / Complete my course / Learn DSA / General beginner
+1. **Goal selection** — MERN Stack / Complete my course / Learn DSA 
 2. **Time budget** — 15 minutes / 20 minutes / 30 minutes / Flexible
-3. **Skill quiz** — 5 questions (variables, loops, functions, debugging, data structures)
+3. **Skill quiz** — 5 questions (according to goal selection if user selects MERN or DSA it should call gemini and ask 5 question and if Goal is course then it should ask for url there  should not be any question asking for course)
    - Result: Absolute Beginner / Familiar with Basics / Intermediate
 4. **Course URL (optional)** — YouTube playlist or single video URL
-   - If provided: Gemini parses it → generates 30-day plan
+   - If provided: Gemini parses it → generates day plan according to the video content(if topic is easy then it can be covered in 1 day and if it is hard then according to the hardness)
    - If not: system uses goal to generate a default curriculum
 5. **Plan preview** — Show first 3 days before user commits
-
+  Flow -> Goal Selection -> time budget -> skill question/url paste -> planing
 ### 5.2 Gemini video parser pipeline
 
 **This is the technical backbone. Replaces YouTube Data API v3 entirely.**
