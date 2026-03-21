@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildCacheKey = buildCacheKey;
+exports.storePlanKeepExisting = storePlanKeepExisting;
 exports.parseUrl = parseUrl;
 exports.parseFromTopic = parseFromTopic;
 exports.validateParsedPlan = validateParsedPlan;
@@ -61,15 +62,17 @@ async function getCachedPlan(url, userId) {
 /**
  * Store a parsed plan in daily_plans.
  */
-async function storePlan(userId, url, sourceType, parsedPlan, skillTier) {
+async function storePlan(userId, url, sourceType, parsedPlan, skillTier, keepExistingPlans = false) {
     const checkpoints = parsedPlan.checkpoints;
     const totalDays = Array.isArray(checkpoints) ? checkpoints.length : 30;
-    // Deactivate any existing active plan for this user
-    await supabase_1.supabaseAdmin
-        .from('daily_plans')
-        .update({ status: 'paused' })
-        .eq('user_id', userId)
-        .eq('status', 'active');
+    if (!keepExistingPlans) {
+        // Deactivate any existing active plan for this user (onboarding flow)
+        await supabase_1.supabaseAdmin
+            .from('daily_plans')
+            .update({ status: 'paused' })
+            .eq('user_id', userId)
+            .eq('status', 'active');
+    }
     const { data, error } = await supabase_1.supabaseAdmin
         .from('daily_plans')
         .insert({
@@ -87,6 +90,13 @@ async function storePlan(userId, url, sourceType, parsedPlan, skillTier) {
     if (error)
         throw new Error(`DB error storing plan: ${error.message}`);
     return data;
+}
+/**
+ * Store a plan generated from the video quiz flow.
+ * Does NOT deactivate existing plans — user keeps all plans.
+ */
+async function storePlanKeepExisting(userId, url, sourceType, parsedPlan, skillTier) {
+    return storePlan(userId, url, sourceType, parsedPlan, skillTier, true);
 }
 /**
  * Main parse pipeline.

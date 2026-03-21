@@ -125,36 +125,94 @@ class HeatmapService {
         }
     }
     /**
-     * Writes a contribution event row.
-     * The database trigger is responsible for updating the aggregated contributions table.
+     * Writes a contribution event row AND directly upserts the aggregated
+     * contributions table.  The DB trigger *may* also fire, but this method
+     * no longer depends on it — the application-level upsert is the
+     * authoritative write path.
      */
     async logContributionEvent(payload) {
+        const date = payload.date ?? this.getTodayIso();
         const insertPayload = {
             user_id: payload.userId,
             event_type: payload.eventType,
             delta: payload.delta,
+            date,
         };
-        insertPayload.date = payload.date ?? this.getTodayIso();
         try {
-            const { error } = await supabase_1.supabaseAdmin.from('contribution_events').insert(insertPayload);
-            if (error) {
-                throw new AppError('Failed to insert contribution event.', {
-                    statusCode: 500,
-                    code: 'CONTRIBUTION_EVENT_INSERT_FAILED',
-                    cause: error,
+            // 1. Insert the immutable event row
+            const { error: eventError } = await supabase_1.supabaseAdmin
+                .from('contribution_events')
+                .insert(insertPayload);
+            if (eventError) {
+                // The trigger may have caused the failure — log but continue to
+                // the direct upsert so the heatmap still gets data.
+                console.error('contribution_events insert failed (trigger may have errored):', eventError);
+            }
+            // 2. Directly upsert the aggregated contributions row
+            const soloDelta = payload.eventType === 'solo_task' || payload.eventType === 'practice_solved' ? payload.delta : 0;
+            const roomDelta = payload.eventType === 'room_win' ? payload.delta : 0;
+            const questsDelta = payload.eventType === 'quest_complete' ? payload.delta : 0;
+            // Try to fetch existing row first
+            const { data: existing } = await supabase_1.supabaseAdmin
+                .from('contributions')
+                .select('count, types')
+                .eq('user_id', payload.userId)
+                .eq('date', date)
+                .maybeSingle();
+            if (existing) {
+                const newCount = Number(existing.count ?? 0) + payload.delta;
+                const oldTypes = (existing.types ?? { solo: 0, room: 0, quests: 0 });
+                const { error: updateError } = await supabase_1.supabaseAdmin
+                    .from('contributions')
+                    .update({
+                    count: newCount,
+                    intensity: this.computeIntensity(newCount),
+                    types: {
+                        solo: Number(oldTypes.solo ?? 0) + soloDelta,
+                        room: Number(oldTypes.room ?? 0) + roomDelta,
+                        quests: Number(oldTypes.quests ?? 0) + questsDelta,
+                    },
+                })
+                    .eq('user_id', payload.userId)
+                    .eq('date', date);
+                if (updateError) {
+                    console.error('contributions update failed:', updateError);
+                }
+            }
+            else {
+                const newCount = payload.delta;
+                const { error: insertError } = await supabase_1.supabaseAdmin
+                    .from('contributions')
+                    .insert({
+                    user_id: payload.userId,
+                    date,
+                    count: newCount,
+                    intensity: this.computeIntensity(newCount),
+                    types: { solo: soloDelta, room: roomDelta, quests: questsDelta },
                 });
+                if (insertError) {
+                    console.error('contributions insert failed:', insertError);
+                }
             }
         }
         catch (error) {
-            if (error instanceof AppError) {
-                throw error;
-            }
-            throw new AppError('Failed to log contribution event.', {
-                statusCode: 500,
-                code: 'CONTRIBUTION_EVENT_LOG_FAILED',
-                cause: error,
-            });
+            // Log but don't throw — heatmap data is non-critical and should
+            // never block task completion from succeeding.
+            console.error('logContributionEvent failed:', error);
         }
+    }
+    computeIntensity(count) {
+        if (count <= 0)
+            return 0;
+        if (count <= 2)
+            return 1;
+        if (count <= 4)
+            return 2;
+        if (count <= 7)
+            return 3;
+        if (count <= 9)
+            return 4;
+        return 5;
     }
     createZeroDay(date) {
         return {

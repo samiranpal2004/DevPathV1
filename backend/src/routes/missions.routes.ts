@@ -214,13 +214,57 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<void>
                 task_id: taskIdStr,
             });
 
-            // Heatmap contribution
+            // Heatmap contribution — direct upsert into contributions
+            const contribDate = new Date().toISOString().slice(0, 10);
+            const contribEventType = task_key === 'practice' ? 'practice_solved' : 'solo_task';
+            const contribDelta = 1.0;
+
+            // Insert event row (trigger may or may not fire)
             await supabaseAdmin.from('contribution_events').insert({
                 user_id: userId,
-                date: new Date().toISOString().slice(0, 10),
-                event_type: task_key === 'practice' ? 'practice_solved' : 'solo_task',
-                delta: 1.0,
+                date: contribDate,
+                event_type: contribEventType,
+                delta: contribDelta,
             });
+
+            // Direct upsert into aggregated contributions
+            const soloDelta = contribEventType === 'solo_task' || contribEventType === 'practice_solved' ? contribDelta : 0;
+            const { data: existingContrib } = await supabaseAdmin
+                .from('contributions')
+                .select('count, types')
+                .eq('user_id', userId)
+                .eq('date', contribDate)
+                .maybeSingle();
+
+            if (existingContrib) {
+                const newCount = Number(existingContrib.count ?? 0) + contribDelta;
+                const oldTypes = (existingContrib.types ?? { solo: 0, room: 0, quests: 0 }) as {
+                    solo: number; room: number; quests: number;
+                };
+                await supabaseAdmin
+                    .from('contributions')
+                    .update({
+                        count: newCount,
+                        intensity: newCount <= 0 ? 0 : newCount <= 2 ? 1 : newCount <= 4 ? 2 : newCount <= 7 ? 3 : newCount <= 9 ? 4 : 5,
+                        types: {
+                            solo: Number(oldTypes.solo ?? 0) + soloDelta,
+                            room: Number(oldTypes.room ?? 0),
+                            quests: Number(oldTypes.quests ?? 0),
+                        },
+                    })
+                    .eq('user_id', userId)
+                    .eq('date', contribDate);
+            } else {
+                await supabaseAdmin
+                    .from('contributions')
+                    .insert({
+                        user_id: userId,
+                        date: contribDate,
+                        count: contribDelta,
+                        intensity: 1,
+                        types: { solo: soloDelta, room: 0, quests: 0 },
+                    });
+            }
 
             // Log practice attempt
             if (plan_id && day_number) {

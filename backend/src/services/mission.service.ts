@@ -21,13 +21,74 @@ async function logContribution(
     delta: number,
     date?: string
 ): Promise<void> {
-    // FIX: Centralized contribution event logging helper for all mission actions.
-    await supabaseAdmin.from('contribution_events').insert({
+    const effectiveDate = date ?? new Date().toISOString().split('T')[0];
+
+    // 1. Insert immutable event row (trigger may or may not work)
+    const { error: eventError } = await supabaseAdmin.from('contribution_events').insert({
         user_id: userId,
-        date: date ?? new Date().toISOString().split('T')[0],
+        date: effectiveDate,
         event_type: eventType,
         delta,
     });
+
+    if (eventError) {
+        console.error('contribution_events insert failed:', eventError);
+    }
+
+    // 2. Directly upsert aggregated contributions row (don't rely on trigger)
+    const soloDelta = eventType === 'solo_task' || eventType === 'practice_solved' ? delta : 0;
+    const roomDelta = eventType === 'room_win' ? delta : 0;
+    const questsDelta = eventType === 'quest_complete' ? delta : 0;
+
+    const { data: existing } = await supabaseAdmin
+        .from('contributions')
+        .select('count, types')
+        .eq('user_id', userId)
+        .eq('date', effectiveDate)
+        .maybeSingle();
+
+    if (existing) {
+        const newCount = Number(existing.count ?? 0) + delta;
+        const oldTypes = (existing.types ?? { solo: 0, room: 0, quests: 0 }) as {
+            solo: number; room: number; quests: number;
+        };
+        const { error: updateError } = await supabaseAdmin
+            .from('contributions')
+            .update({
+                count: newCount,
+                intensity: computeIntensity(newCount),
+                types: {
+                    solo: Number(oldTypes.solo ?? 0) + soloDelta,
+                    room: Number(oldTypes.room ?? 0) + roomDelta,
+                    quests: Number(oldTypes.quests ?? 0) + questsDelta,
+                },
+            })
+            .eq('user_id', userId)
+            .eq('date', effectiveDate);
+
+        if (updateError) console.error('contributions update failed:', updateError);
+    } else {
+        const { error: insertError } = await supabaseAdmin
+            .from('contributions')
+            .insert({
+                user_id: userId,
+                date: effectiveDate,
+                count: delta,
+                intensity: computeIntensity(delta),
+                types: { solo: soloDelta, room: roomDelta, quests: questsDelta },
+            });
+
+        if (insertError) console.error('contributions insert failed:', insertError);
+    }
+}
+
+function computeIntensity(count: number): number {
+    if (count <= 0) return 0;
+    if (count <= 2) return 1;
+    if (count <= 4) return 2;
+    if (count <= 7) return 3;
+    if (count <= 9) return 4;
+    return 5;
 }
 
 async function getPracticeCount(userId: string): Promise<number> {
