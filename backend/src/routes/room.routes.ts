@@ -168,6 +168,47 @@ router.get('/preview/:code', async (req: Request, res: Response): Promise<Respon
   }
 });
 
+/**
+ * GET /api/rooms/my-active-room
+ * Returns the active room the current user is in (most recently joined).
+ * Returns null if user is not in any active room.
+ */
+router.get('/my-active-room', async (req: Request, res: Response): Promise<Response> => {
+  const userId = req.userId;
+
+  if (!isNonEmptyString(userId)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
+  }
+
+  try {
+    // Find rooms this user is a member of that are currently active
+    const { data: memberships, error } = await supabaseAdmin
+      .from('room_members')
+      .select('room_id')
+      .eq('user_id', userId);
+
+    if (error || !memberships || memberships.length === 0) {
+      return sendSuccess(res, 200, null);
+    }
+
+    const roomIds = memberships.map((m) => m.room_id);
+
+    const { data: activeRoom } = await supabaseAdmin
+      .from('rooms')
+      .select('id, code, name')
+      .in('id', roomIds)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return sendSuccess(res, 200, activeRoom ?? null);
+  } catch (err) {
+    console.error('[Room] my-active-room failed:', err);
+    return sendSuccess(res, 200, null);
+  }
+});
+
 router.get('/:id', requireAuth, async (req: Request, res: Response): Promise<Response> => {
   try {
     const id = String(req.params.id ?? '').trim();

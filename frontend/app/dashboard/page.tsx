@@ -4,9 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 
+import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
 import { VideoMission } from "@/components/VideoMission";
 import { ActiveMission } from "@/components/ActiveMission";
+import { useActiveRoom } from "@/hooks/useActiveRoom";
 
 function RoomEntrySection() {
   const router = useRouter();
@@ -52,6 +54,7 @@ function RoomEntrySection() {
 
 export default function Dashboard() {
   const { user } = useUser();
+  const { activeRoom } = useActiveRoom();
 
   return (
     <>
@@ -64,6 +67,25 @@ export default function Dashboard() {
           <h1 className="text-5xl font-extrabold text-on-background tracking-tight mb-2">Good morning, {user?.firstName ?? 'Learner'}.</h1>
           <p className="text-lg text-on-surface-variant max-w-xl">Your focus path is ready. Complete today's mission to maintain your 12-day momentum.</p>
         </header>
+
+        {/* Active room banner */}
+        {activeRoom && (
+          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <div>
+                <p className="text-white font-semibold text-sm">{activeRoom.name}</p>
+                <p className="text-green-400 text-xs">Complete your tasks to climb the leaderboard</p>
+              </div>
+            </div>
+            <Link
+              href={`/rooms/${activeRoom.id}`}
+              className="text-green-400 text-xs font-medium hover:text-green-300 transition-colors bg-green-500/20 px-3 py-1.5 rounded-lg"
+            >
+              View Race →
+            </Link>
+          </div>
+        )}
 
         {/* YouTube URL input — paste link to generate tasks */}
         <VideoMission />

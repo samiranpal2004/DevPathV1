@@ -879,7 +879,7 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
   const userId = extractUserId(req);
   if (!userId) return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
 
-  const { code, language, task_title, task_description, plan_id, day_number, task_key } =
+  const { code, language, task_title, task_description, plan_id, day_number, task_key, room_id } =
     req.body as {
       code?: unknown;
       language?: unknown;
@@ -888,6 +888,7 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
       plan_id?: unknown;
       day_number?: unknown;
       task_key?: unknown;
+      room_id?: unknown;
     };
 
   if (typeof code !== 'string' || code.trim().length === 0)
@@ -933,6 +934,95 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
           hint_used: false,
           submitted_code: code,
         });
+      }
+
+      // ─── Room leaderboard update ──────────────────────────────────────────
+      console.log(`[evaluate-code] room_id received: ${String(room_id ?? 'none')}`);
+      if (room_id && typeof room_id === 'string') {
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+
+          const { data: roomLog } = await supabaseAdmin
+            .from('room_daily_log')
+            .select('tasks_done, xp_earned, started_at')
+            .eq('room_id', room_id)
+            .eq('user_id', userId)
+            .eq('date', today)
+            .maybeSingle();
+
+          const currentTasksDone = (roomLog?.tasks_done || 0) + 1;
+          const currentXpEarned = (roomLog?.xp_earned || 0) + xpAwarded;
+          const startedAt = roomLog?.started_at || new Date().toISOString();
+
+          await supabaseAdmin
+            .from('room_daily_log')
+            .upsert(
+              {
+                room_id,
+                user_id: userId,
+                date: today,
+                tasks_done: currentTasksDone,
+                xp_earned: currentXpEarned,
+                started_at: startedAt,
+              },
+              { onConflict: 'room_id,user_id,date' }
+            );
+
+          await supabaseAdmin.from('room_events').insert({
+            room_id,
+            user_id: userId,
+            event_type: task_key === 'practice' ? 'practice_solved' : 'task_complete',
+            metadata: {
+              task_num: task_key === 'task1' ? 1 : task_key === 'task2' ? 2 : 3,
+              xp_awarded: xpAwarded,
+              tasks_done: currentTasksDone,
+            },
+          });
+
+          // Check first finish bonus when all 3 tasks done
+          if (currentTasksDone >= 3) {
+            const { data: existingPosition } = await supabaseAdmin
+              .from('room_daily_log')
+              .select('finish_position')
+              .eq('room_id', room_id)
+              .eq('date', today)
+              .not('finish_position', 'is', null)
+              .limit(1)
+              .maybeSingle();
+
+            if (!existingPosition) {
+              await supabaseAdmin
+                .from('room_daily_log')
+                .update({ finish_position: 1, completed_at: new Date().toISOString() })
+                .eq('room_id', room_id)
+                .eq('user_id', userId)
+                .eq('date', today);
+
+              const firstFinishLevelUp = await xpService.awardXp({
+                userId,
+                amount: 25,
+                reason: 'room_first_finish',
+                roomId: room_id,
+              });
+              xpAwarded += 25;
+              if (firstFinishLevelUp && !levelUpEvent) {
+                levelUpEvent = firstFinishLevelUp;
+              }
+
+              await supabaseAdmin.from('room_events').insert({
+                room_id,
+                user_id: userId,
+                event_type: 'first_finish',
+                metadata: { xp_awarded: 25 },
+              });
+            }
+          }
+
+          console.log(`[Room] Updated room_daily_log for user ${userId} in room ${room_id}: ${currentTasksDone}/3 tasks`);
+        } catch (roomErr) {
+          // Room update failure must NOT break task evaluation
+          console.error('[Room] Failed to update room log:', roomErr);
+        }
       }
     }
 

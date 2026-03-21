@@ -55,12 +55,13 @@ interface Props {
   taskDescription: string;
   planId: string;
   dayNumber: number;
+  roomId?: string | null;
   onSuccess: (xp: number) => void;
   onClose: () => void;
 }
 
 export function CodeEditor({
-  taskKey, taskTitle, taskDescription, planId, dayNumber, onSuccess, onClose,
+  taskKey, taskTitle, taskDescription, planId, dayNumber, roomId, onSuccess, onClose,
 }: Props) {
   const { getToken } = useAuth();
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -113,6 +114,7 @@ export function CodeEditor({
           plan_id: planId,
           day_number: dayNumber,
           task_key: taskKey,
+          room_id: roomId ?? undefined,
         }),
       });
 

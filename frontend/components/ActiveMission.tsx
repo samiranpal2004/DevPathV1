@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { CodeEditor } from './CodeEditor';
+import { useActiveRoom } from '@/hooks/useActiveRoom';
 
 interface Task {
   title: string;
@@ -49,6 +50,7 @@ export function ActiveMission() {
   const [sessionXp, setSessionXp] = useState(0);
   const [xpPop, setXpPop] = useState<number | null>(null);
 
+  const { activeRoom } = useActiveRoom();
   const apiBase = process.env.NEXT_PUBLIC_API_URL;
 
   const fetchMission = useCallback(async () => {
@@ -259,6 +261,7 @@ export function ActiveMission() {
           }
           planId={mission.plan_id}
           dayNumber={mission.day_number}
+          roomId={activeRoom?.id}
           onSuccess={(xp) => handleTaskSuccess(editorOpen, xp)}
           onClose={() => setEditorOpen(null)}
         />
