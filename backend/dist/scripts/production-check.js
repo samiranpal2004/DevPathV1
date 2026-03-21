@@ -1,10 +1,48 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
 const pg_1 = require("pg");
-const supabase_1 = require("../lib/supabase");
+let supabaseAdmin;
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000099';
+function validateRequiredEnv() {
+    // FIX: Added explicit preflight env validation for production check script.
+    const required = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'];
+    return required.filter((key) => !process.env[key] || String(process.env[key]).trim().length === 0);
+}
 function deterministicUuid(seed) {
     return `00000000-0000-0000-0000-${seed.toString().padStart(12, '0')}`;
 }
@@ -19,7 +57,7 @@ function toIsoDate(date) {
     return date.toISOString().slice(0, 10);
 }
 async function ensureTestUser() {
-    const { error } = await supabase_1.supabaseAdmin.from('users').upsert({
+    const { error } = await supabaseAdmin.from('users').upsert({
         id: TEST_USER_ID,
         email: 'prod-check@devpath.app',
         display_name: 'Prod Check Bot',
@@ -44,7 +82,7 @@ async function runCheck(name, fn) {
     }
 }
 async function checkSupabaseConnection() {
-    const { data, error } = await supabase_1.supabaseAdmin.from('users').select('id').limit(1);
+    const { data, error } = await supabaseAdmin.from('users').select('id').limit(1);
     if (error) {
         throw new Error(`Users query failed: ${error.message}`);
     }
@@ -53,7 +91,7 @@ async function checkSupabaseConnection() {
     }
 }
 async function checkMaterializedView() {
-    const { data, error } = await supabase_1.supabaseAdmin.from('user_xp_totals').select('user_id,total_xp').limit(1);
+    const { data, error } = await supabaseAdmin.from('user_xp_totals').select('user_id,total_xp').limit(1);
     if (error) {
         throw new Error(`Materialized view query failed: ${error.message}`);
     }
@@ -65,7 +103,7 @@ async function checkContributionTrigger() {
     await ensureTestUser();
     const todayIso = toIsoDate(new Date());
     const eventId = deterministicUuid(9001);
-    const { error: insertError } = await supabase_1.supabaseAdmin.from('contribution_events').upsert({
+    const { error: insertError } = await supabaseAdmin.from('contribution_events').upsert({
         id: eventId,
         user_id: TEST_USER_ID,
         date: todayIso,
@@ -76,7 +114,7 @@ async function checkContributionTrigger() {
     if (insertError) {
         throw new Error(`Insert into contribution_events failed: ${insertError.message}`);
     }
-    const { data: contributionRow, error: verifyError } = await supabase_1.supabaseAdmin
+    const { data: contributionRow, error: verifyError } = await supabaseAdmin
         .from('contributions')
         .select('count')
         .eq('user_id', TEST_USER_ID)
@@ -89,11 +127,11 @@ async function checkContributionTrigger() {
     if (!Number.isFinite(countValue) || countValue <= 0) {
         throw new Error('Contribution trigger did not update aggregated contributions.');
     }
-    const { error: deleteEventError } = await supabase_1.supabaseAdmin.from('contribution_events').delete().eq('id', eventId);
+    const { error: deleteEventError } = await supabaseAdmin.from('contribution_events').delete().eq('id', eventId);
     if (deleteEventError) {
         throw new Error(`Cleanup failed (contribution_events): ${deleteEventError.message}`);
     }
-    const { error: deleteContributionError } = await supabase_1.supabaseAdmin
+    const { error: deleteContributionError } = await supabaseAdmin
         .from('contributions')
         .delete()
         .eq('user_id', TEST_USER_ID)
@@ -105,7 +143,7 @@ async function checkContributionTrigger() {
 async function checkXpTrigger() {
     await ensureTestUser();
     const eventId = runtimeUuid(9);
-    const { data: beforeRow, error: beforeError } = await supabase_1.supabaseAdmin
+    const { data: beforeRow, error: beforeError } = await supabaseAdmin
         .from('user_xp_totals')
         .select('total_xp')
         .eq('user_id', TEST_USER_ID)
@@ -114,7 +152,7 @@ async function checkXpTrigger() {
         throw new Error(`Pre-check user_xp_totals query failed: ${beforeError.message}`);
     }
     const beforeTotal = Number(beforeRow?.total_xp ?? 0);
-    const { error: insertError } = await supabase_1.supabaseAdmin.from('xp_events').insert({
+    const { error: insertError } = await supabaseAdmin.from('xp_events').insert({
         id: eventId,
         user_id: TEST_USER_ID,
         amount: 11,
@@ -126,7 +164,7 @@ async function checkXpTrigger() {
     }
     let refreshed = false;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-        const { data: afterRow, error: afterError } = await supabase_1.supabaseAdmin
+        const { data: afterRow, error: afterError } = await supabaseAdmin
             .from('user_xp_totals')
             .select('total_xp')
             .eq('user_id', TEST_USER_ID)
@@ -146,7 +184,7 @@ async function checkXpTrigger() {
     if (!refreshed) {
         throw new Error('XP trigger did not refresh user_xp_totals after insert.');
     }
-    const { error: deleteError } = await supabase_1.supabaseAdmin.from('xp_events').delete().eq('id', eventId);
+    const { error: deleteError } = await supabaseAdmin.from('xp_events').delete().eq('id', eventId);
     if (deleteError) {
         throw new Error(`Cleanup failed (xp_events): ${deleteError.message}`);
     }
@@ -179,7 +217,7 @@ async function checkRealtimePublication() {
     }
 }
 async function checkDemoAccount() {
-    const { data, error } = await supabase_1.supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from('users')
         .select('id')
         .eq('email', 'demo@devpath.app')
@@ -192,7 +230,7 @@ async function checkDemoAccount() {
     }
 }
 async function checkDemoRoom() {
-    const { data, error } = await supabase_1.supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from('rooms')
         .select('id,status')
         .eq('code', 'KGEC42')
@@ -206,7 +244,7 @@ async function checkDemoRoom() {
     }
 }
 async function checkDemoPlan() {
-    const { data, error } = await supabase_1.supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from('daily_plans')
         .select('id')
         .eq('user_id', DEMO_USER_ID)
@@ -221,6 +259,14 @@ async function checkDemoPlan() {
 }
 async function run() {
     console.log('🔍 Running production readiness checks...');
+    const missingEnv = validateRequiredEnv();
+    if (missingEnv.length > 0) {
+        console.error('❌ Missing required environment variables for production checks:');
+        missingEnv.forEach((envKey) => console.error(` - ${envKey}`));
+        process.exit(1);
+        return;
+    }
+    ({ supabaseAdmin } = await Promise.resolve().then(() => __importStar(require('../lib/supabase'))));
     const checks = [
         () => runCheck('Supabase connection — can query users table', checkSupabaseConnection),
         () => runCheck('Materialized view — user_xp_totals is queryable', checkMaterializedView),

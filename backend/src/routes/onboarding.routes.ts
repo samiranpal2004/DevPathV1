@@ -13,10 +13,9 @@ const parseTopicSchema = Joi.object({
 });
 
 function getUserId(req: Request, res: Response): string | null {
-    const raw = req.headers['x-user-id'];
-    const userId = Array.isArray(raw) ? raw[0] : raw;
+    const userId = req.userId;
     if (!userId) {
-        res.status(401).json({ error: 'Unauthorized: x-user-id header required' });
+        res.status(401).json({ error: 'Unauthorized: authentication required' });
         return null;
     }
     return userId;

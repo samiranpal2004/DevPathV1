@@ -9,7 +9,7 @@ type ContributionEventType =
 
 type XpReason = 'task_complete' | 'practice_solved' | 'streak_bonus';
 
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
+const DEMO_USER_ID = 'user_demo00000000000000001';
 const ROHAN_USER_ID = '00000000-0000-0000-0000-000000000002';
 const PRIYA_USER_ID = '00000000-0000-0000-0000-000000000003';
 const DEMO_ROOM_ID = '00000000-0000-0000-0000-000000000042';

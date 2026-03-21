@@ -27,7 +27,7 @@ const ROOM_TYPES: ReadonlySet<RoomType> = new Set([
   'ranked_arena',
 ]);
 
-const UUID_REGEX =
+const ROOM_ID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROOM_CODE_REGEX = /^[A-Za-z0-9]{6}$/;
 
@@ -35,8 +35,8 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isValidUuid(value: string): boolean {
-  return UUID_REGEX.test(value);
+function isValidRoomId(value: string): boolean {
+  return ROOM_ID_REGEX.test(value);
 }
 
 function sendError(res: Response, statusCode: number, code: string, message: string): Response<ApiErrorBody> {
@@ -55,9 +55,10 @@ function sendSuccess<T>(res: Response, statusCode: number, data: T): Response<Ap
 
 router.post('/create', async (req: Request, res: Response): Promise<Response> => {
   const body = req.body as Partial<CreateRoomPayload>;
+  const ownerId = req.userId;
 
-  if (!isNonEmptyString(body.ownerId) || !isValidUuid(body.ownerId)) {
-    return sendError(res, 400, 'BAD_REQUEST', 'ownerId must be a valid UUID.');
+  if (!isNonEmptyString(ownerId)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
   }
 
   if (!isNonEmptyString(body.name) || body.name.trim().length > 50) {
@@ -76,7 +77,7 @@ router.post('/create', async (req: Request, res: Response): Promise<Response> =>
 
   try {
     const room = await roomService.createRoom({
-      ownerId: body.ownerId,
+      ownerId,
       name: body.name,
       type: body.type,
       topic: body.topic,
@@ -96,9 +97,10 @@ router.post('/create', async (req: Request, res: Response): Promise<Response> =>
 
 router.post('/join', async (req: Request, res: Response): Promise<Response> => {
   const body = req.body as Partial<JoinRoomPayload>;
+  const userId = req.userId;
 
-  if (!isNonEmptyString(body.userId) || !isValidUuid(body.userId)) {
-    return sendError(res, 400, 'BAD_REQUEST', 'userId must be a valid UUID.');
+  if (!isNonEmptyString(userId)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
   }
 
   if (!isNonEmptyString(body.code) || !ROOM_CODE_REGEX.test(body.code)) {
@@ -108,7 +110,7 @@ router.post('/join', async (req: Request, res: Response): Promise<Response> => {
   try {
     const preview = await roomService.joinRoom({
       code: body.code.toUpperCase(),
-      userId: body.userId,
+      userId,
     });
 
     return sendSuccess(res, 200, preview);
@@ -124,7 +126,7 @@ router.post('/join', async (req: Request, res: Response): Promise<Response> => {
 router.get('/:id/leaderboard', async (req: Request, res: Response): Promise<Response> => {
   const roomId = String(req.params.id ?? '').trim();
 
-  if (!isValidUuid(roomId)) {
+  if (!isValidRoomId(roomId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'id must be a valid UUID.');
   }
 
@@ -143,7 +145,7 @@ router.get('/:id/leaderboard', async (req: Request, res: Response): Promise<Resp
 router.get('/:id/feed', async (req: Request, res: Response): Promise<Response> => {
   const roomId = String(req.params.id ?? '').trim();
 
-  if (!isValidUuid(roomId)) {
+  if (!isValidRoomId(roomId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'id must be a valid UUID.');
   }
 
@@ -162,18 +164,18 @@ router.get('/:id/feed', async (req: Request, res: Response): Promise<Response> =
 router.post('/:id/nudge/:userId', async (req: Request, res: Response): Promise<Response> => {
   const roomId = String(req.params.id ?? '').trim();
   const targetUserId = String(req.params.userId ?? '').trim();
-  const nudgerId = String((req.body as { nudgerId?: string } | undefined)?.nudgerId ?? '').trim();
+  const nudgerId = req.userId;
 
-  if (!isValidUuid(roomId)) {
+  if (!isValidRoomId(roomId)) {
     return sendError(res, 400, 'BAD_REQUEST', 'id must be a valid UUID.');
   }
 
-  if (!isValidUuid(targetUserId)) {
-    return sendError(res, 400, 'BAD_REQUEST', 'userId must be a valid UUID.');
+  if (!isNonEmptyString(targetUserId)) {
+    return sendError(res, 400, 'BAD_REQUEST', 'userId must be provided.');
   }
 
-  if (!isValidUuid(nudgerId)) {
-    return sendError(res, 400, 'BAD_REQUEST', 'nudgerId must be a valid UUID.');
+  if (!isNonEmptyString(nudgerId)) {
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
   }
 
   try {
