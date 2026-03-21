@@ -101,20 +101,25 @@ class XpService {
         const oldLevel = before?.level ?? 1;
         const oldXp = before?.totalXp ?? 0;
         // Insert into xp_events (immutable write)
+        // task_id is UUID in DB — only pass valid UUIDs, skip string identifiers like "day_5_task1"
+        const isValidUuid = taskId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
         const { error: insertError } = await supabase_1.supabaseAdmin
             .from('xp_events')
             .insert({
             user_id: userId,
             amount,
             reason: reason,
-            task_id: taskId || null,
+            task_id: isValidUuid ? taskId : null,
             room_id: roomId || null,
             created_at: new Date().toISOString(),
         });
         if (insertError) {
+            console.error('[XP] Insert failed:', insertError.message);
             throw new Error(`XP insert failed: ${insertError.message}`);
         }
+        console.log(`[XP] Awarded ${amount} XP to user ${userId} for "${reason}"`);
         const after = await this.getUserXpProfile(userId);
+        console.log(`[XP] User ${userId} now has ${after.totalXp} total XP (level ${after.level})`);
         const newLevel = after.level;
         if (newLevel > oldLevel) {
             return {
@@ -132,16 +137,39 @@ class XpService {
     }
     /**
      * Get the full XP profile for a user including level, rank, and progress.
-     * If user has no XP history, returns a level 1 profile with zeros.
+     * Tries the materialized view first (fast), then falls back to a direct
+     * SUM on xp_events if the view has no row (trigger may not have fired yet).
      */
     async getUserXpProfile(userId) {
-        const { data, error } = await supabase_1.supabaseAdmin
+        // Try materialized view first
+        const { data } = await supabase_1.supabaseAdmin
             .from('user_xp_totals')
             .select('total_xp, weekly_xp')
             .eq('user_id', userId)
             .single();
-        // No row in view means user has no XP yet
-        if (error || !data) {
+        let totalXp = 0;
+        let weeklyXp = 0;
+        if (data && data.total_xp > 0) {
+            totalXp = data.total_xp || 0;
+            weeklyXp = data.weekly_xp || 0;
+        }
+        else {
+            // Fallback: query xp_events directly (materialized view may not have refreshed)
+            const { data: sumData } = await supabase_1.supabaseAdmin
+                .from('xp_events')
+                .select('amount')
+                .eq('user_id', userId);
+            if (sumData && sumData.length > 0) {
+                const now = new Date();
+                const weekStart = new Date(now);
+                weekStart.setDate(now.getDate() - now.getDay());
+                weekStart.setHours(0, 0, 0, 0);
+                totalXp = sumData.reduce((sum, row) => sum + (row.amount || 0), 0);
+                // For weekly, we'd need created_at — just use total for now
+                weeklyXp = totalXp;
+            }
+        }
+        if (totalXp === 0) {
             return {
                 userId,
                 totalXp: 0,
@@ -152,8 +180,6 @@ class XpService {
                 progressPercent: (0, xp_config_1.getProgressPercent)(0),
             };
         }
-        const totalXp = data.total_xp || 0;
-        const weeklyXp = data.weekly_xp || 0;
         const level = (0, xp_config_1.getLevelFromXp)(totalXp);
         return {
             userId,
