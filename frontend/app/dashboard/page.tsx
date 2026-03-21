@@ -55,6 +55,7 @@ function RoomEntrySection() {
 export default function Dashboard() {
   const { user } = useUser();
   const { activeRoom } = useActiveRoom();
+console.log('Active room:', activeRoom);
 
   return (
     <>

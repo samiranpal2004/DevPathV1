@@ -881,14 +881,14 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
 
   const { code, language, task_title, task_description, plan_id, day_number, task_key, room_id } =
     req.body as {
-      code?: unknown;
-      language?: unknown;
-      task_title?: unknown;
-      task_description?: unknown;
-      plan_id?: unknown;
-      day_number?: unknown;
-      task_key?: unknown;
-      room_id?: unknown;
+      code: string;
+      language: string;
+      task_title: string;
+      task_description: string;
+      plan_id: string;
+      day_number: number;
+      task_key: 'task1' | 'task2' | 'practice';
+      room_id?: string;
     };
 
   if (typeof code !== 'string' || code.trim().length === 0)
@@ -936,13 +936,14 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
         });
       }
 
-      // ─── Room leaderboard update ──────────────────────────────────────────
-      console.log(`[evaluate-code] room_id received: ${String(room_id ?? 'none')}`);
-      if (room_id && typeof room_id === 'string') {
+      // ── Room leaderboard update ──────────────────────────
+      if (evalResult.passed && room_id) {
         try {
-          const today = new Date().toISOString().slice(0, 10);
+          const today = new Date().toISOString().split('T')[0];
 
-          const { data: roomLog } = await supabaseAdmin
+          console.log(`[evaluate-code] room_id received: ${room_id}`);
+
+          const { data: existingLog } = await supabaseAdmin
             .from('room_daily_log')
             .select('tasks_done, xp_earned, started_at')
             .eq('room_id', room_id)
@@ -950,64 +951,72 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
             .eq('date', today)
             .maybeSingle();
 
-          const currentTasksDone = (roomLog?.tasks_done || 0) + 1;
-          const currentXpEarned = (roomLog?.xp_earned || 0) + xpAwarded;
-          const startedAt = roomLog?.started_at || new Date().toISOString();
+          const currentTasksDone = existingLog?.tasks_done ?? 0;
+          const currentXp = existingLog?.xp_earned ?? 0;
+          const newTasksDone = Math.min(currentTasksDone + 1, 3);
+          const newXp = currentXp + xpAwarded;
 
-          await supabaseAdmin
+          console.log(
+            `[Room] Updating room_daily_log: ` +
+              `user=${userId} room=${room_id} ` +
+              `tasks=${newTasksDone}/3 xp=${newXp}`
+          );
+
+          const { error: upsertError } = await supabaseAdmin
             .from('room_daily_log')
             .upsert(
               {
                 room_id,
                 user_id: userId,
                 date: today,
-                tasks_done: currentTasksDone,
-                xp_earned: currentXpEarned,
-                started_at: startedAt,
+                tasks_done: newTasksDone,
+                xp_earned: newXp,
+                started_at: existingLog?.started_at ?? new Date().toISOString(),
               },
               { onConflict: 'room_id,user_id,date' }
             );
 
-          await supabaseAdmin.from('room_events').insert({
-            room_id,
-            user_id: userId,
-            event_type: task_key === 'practice' ? 'practice_solved' : 'task_complete',
-            metadata: {
-              task_num: task_key === 'task1' ? 1 : task_key === 'task2' ? 2 : 3,
-              xp_awarded: xpAwarded,
-              tasks_done: currentTasksDone,
-            },
-          });
+          if (upsertError) {
+            console.error('[Room] room_daily_log upsert failed:', upsertError);
+          } else {
+            console.log('[Room] room_daily_log updated ✅');
+          }
 
-          // Check first finish bonus when all 3 tasks done
-          if (currentTasksDone >= 3) {
-            const { data: existingPosition } = await supabaseAdmin
-              .from('room_daily_log')
-              .select('finish_position')
-              .eq('room_id', room_id)
-              .eq('date', today)
-              .not('finish_position', 'is', null)
-              .limit(1)
-              .maybeSingle();
+          const eventType = task_key === 'practice' ? 'practice_solved' : 'task_complete';
 
-            if (!existingPosition) {
-              await supabaseAdmin
-                .from('room_daily_log')
-                .update({ finish_position: 1, completed_at: new Date().toISOString() })
-                .eq('room_id', room_id)
-                .eq('user_id', userId)
-                .eq('date', today);
+          const { error: eventError } = await supabaseAdmin
+            .from('room_events')
+            .insert({
+              room_id,
+              user_id: userId,
+              event_type: eventType,
+              metadata: {
+                task_key,
+                xp_awarded: xpAwarded,
+                tasks_done: newTasksDone,
+              },
+            });
 
-              const firstFinishLevelUp = await xpService.awardXp({
-                userId,
+          if (eventError) {
+            console.error('[Room] room_events insert failed:', eventError);
+          } else {
+            console.log(`[Room] Activity feed updated: ${eventType} ✅`);
+          }
+
+          if (newTasksDone === 3) {
+            console.log('[Room] All 3 tasks done — checking first finish');
+
+            const isFirst = await roomService.checkAndSetFirstFinish(room_id, userId);
+
+            if (isFirst) {
+              console.log('[Room] 🥇 First finish! +25 XP bonus');
+
+              await supabaseAdmin.from('xp_events').insert({
+                user_id: userId,
                 amount: 25,
                 reason: 'room_first_finish',
-                roomId: room_id,
+                room_id,
               });
-              xpAwarded += 25;
-              if (firstFinishLevelUp && !levelUpEvent) {
-                levelUpEvent = firstFinishLevelUp;
-              }
 
               await supabaseAdmin.from('room_events').insert({
                 room_id,
@@ -1016,14 +1025,15 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<Respo
                 metadata: { xp_awarded: 25 },
               });
             }
-          }
 
-          console.log(`[Room] Updated room_daily_log for user ${userId} in room ${room_id}: ${currentTasksDone}/3 tasks`);
+            await roomService.checkAndAwardAllComplete(room_id);
+          }
         } catch (roomErr) {
-          // Room update failure must NOT break task evaluation
-          console.error('[Room] Failed to update room log:', roomErr);
+          // Room failure must NEVER break the eval response
+          console.error('[Room] evaluate-code room update failed:', roomErr);
         }
       }
+      // ── End room update ──────────────────────────────────
     }
 
     const newXpProfile = await xpService.getUserXpProfile(userId);
