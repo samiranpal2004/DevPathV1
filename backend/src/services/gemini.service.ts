@@ -68,14 +68,89 @@ export async function parseVideoUrl(url: string): Promise<Record<string, unknown
 }
 
 export async function parseVideoUrlRaw(url: string): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-  // Pass the YouTube URL as fileData so Gemini actually watches the video
-  // instead of just reading the URL string and hallucinating content.
-  const result = await model.generateContent([
-    { fileData: { fileUri: url, mimeType: 'video/mp4' } },
-    { text: VIDEO_PARSER_PROMPT_TEXT },
-  ]);
-  return result.response.text().trim();
+  // Step 1 — Extract video ID from URL
+  // Handles all formats:
+  // youtube.com/watch?v=ID
+  // youtube.com/watch?v=ID&list=PLAYLIST&index=4
+  // youtu.be/ID
+  const videoIdMatch = url.match(
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+  );
+  const videoId = videoIdMatch?.[1];
+  
+  let videoContext = '';
+
+  // Step 2 — Fetch real title from YouTube oEmbed
+  // oEmbed is completely free — no API key required
+  // Returns the actual video title so Gemini knows 
+  // exactly what the video is about
+  if (videoId) {
+    try {
+      const oEmbedUrl =
+        `https://www.youtube.com/oembed` +
+        `?url=https://www.youtube.com/watch?v=${videoId}` +
+        `&format=json`;
+
+      const response = await fetch(oEmbedUrl);
+
+      if (response.ok) {
+        const data = await response.json() as { 
+          title?: string; 
+          author_name?: string 
+        };
+        
+        videoContext = [
+          data.title ? `Video title: "${data.title}"` : '',
+          data.author_name ? `Channel: ${data.author_name}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        console.log('[Gemini] oEmbed success:', videoContext);
+      } else {
+        console.warn(
+          '[Gemini] oEmbed returned non-OK status:', 
+          response.status
+        );
+      }
+    } catch (err) {
+      // oEmbed failed — continue with URL only
+      // Gemini will still try its best
+      console.warn('[Gemini] oEmbed fetch failed:', err);
+    }
+  }
+
+  // Step 3 — Build contextual prompt with real video info
+  // NEVER use fileData — it hallucinates for unknown videos
+  const contextBlock = videoContext
+    ? `You are generating a study plan for this specific video:\n${videoContext}\nURL: ${url}`
+    : `You are generating a study plan for this YouTube video:\nURL: ${url}`;
+
+  const fullPrompt = `${contextBlock}
+
+The study plan MUST be based on the actual topic of this video.
+If the video title mentions DSA — generate DSA content.
+If the video title mentions React — generate React content.
+If the video title mentions Python — generate Python content.
+Do NOT default to Python or JavaScript if the topic is different.
+
+${VIDEO_PARSER_PROMPT_TEXT}`;
+
+  console.log('[Gemini] Sending prompt with context:', 
+    contextBlock);
+
+  // Step 4 — Call Gemini with text prompt (not fileData)
+  const model = genAI.getGenerativeModel({ 
+    model: 'gemini-2.5-pro' 
+  });
+  
+  const result = await model.generateContent(fullPrompt);
+  const text = result.response.text().trim();
+
+  console.log('[Gemini] Raw response length:', text.length);
+  console.log('[Gemini] Response preview:', text.slice(0, 200));
+
+  return text;
 }
 
 /**
@@ -87,8 +162,14 @@ export async function generateTopicCurriculum(topic: string, skillTier = 'beginn
 }
 
 export async function generateTopicCurriculumRaw(topic: string, skillTier = 'beginner'): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
-  const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
+  // Use flash for topic curriculum — saves pro quota 
+  // for video parsing where accuracy matters most
+  const model = genAI.getGenerativeModel({ 
+    model: 'gemini-2.5-flash' 
+  });
+  const result = await model.generateContent(
+    TOPIC_CURRICULUM_PROMPT(topic, skillTier)
+  );
   return result.response.text().trim();
 }
 
