@@ -23,15 +23,17 @@ function EditorSkeleton() {
 }
 
 const LANGUAGES = [
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'python', label: 'Python' },
-  { value: 'java', label: 'Java' },
-  { value: 'cpp', label: 'C++' },
-  { value: 'go', label: 'Go' },
+  { value: 'text', label: 'Written Answer', icon: 'edit_note' },
+  { value: 'javascript', label: 'JavaScript', icon: 'code' },
+  { value: 'typescript', label: 'TypeScript', icon: 'code' },
+  { value: 'python', label: 'Python', icon: 'code' },
+  { value: 'java', label: 'Java', icon: 'code' },
+  { value: 'cpp', label: 'C++', icon: 'code' },
+  { value: 'go', label: 'Go', icon: 'code' },
 ];
 
 const STARTERS: Record<string, string> = {
+  text: '',
   javascript: '// Write your solution here\n\n',
   typescript: '// Write your solution here\n\n',
   python: '# Write your solution here\n\n',
@@ -66,6 +68,7 @@ export function CodeEditor({
   const { getToken } = useAuth();
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const codeRef = useRef<string>(STARTERS['javascript'] ?? '');
+  const textRef = useRef<string>('');
 
   const [language, setLanguage] = useState('javascript');
   const [editorKey, setEditorKey] = useState(0); // remount editor on language change
@@ -73,29 +76,52 @@ export function CodeEditor({
   const [result, setResult] = useState<EvalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const isTextMode = language === 'text';
+
   function handleLanguageChange(lang: string) {
-    const current = codeRef.current.trim();
-    const isStarter = Object.values(STARTERS).map((s) => s.trim()).includes(current);
-    if (!current || isStarter) {
-      codeRef.current = STARTERS[lang] ?? '';
-      setEditorKey((k) => k + 1); // force remount with new default value
+    if (lang === 'text') {
+      // Switching to text mode — preserve any code as text if user hasn't written text yet
+      if (!textRef.current.trim()) {
+        const current = codeRef.current.trim();
+        const isStarter = Object.values(STARTERS).map((s) => s.trim()).includes(current);
+        if (current && !isStarter) {
+          textRef.current = current;
+        }
+      }
+    } else if (language === 'text') {
+      // Switching from text mode to code — reset code starter if needed
+      const current = codeRef.current.trim();
+      const isStarter = Object.values(STARTERS).map((s) => s.trim()).includes(current);
+      if (!current || isStarter) {
+        codeRef.current = STARTERS[lang] ?? '';
+        setEditorKey((k) => k + 1);
+      }
+    } else {
+      // Code to code language switch
+      const current = codeRef.current.trim();
+      const isStarter = Object.values(STARTERS).map((s) => s.trim()).includes(current);
+      if (!current || isStarter) {
+        codeRef.current = STARTERS[lang] ?? '';
+        setEditorKey((k) => k + 1);
+      }
     }
     setLanguage(lang);
   }
 
   function handleEditorMount(ed: editor.IStandaloneCodeEditor) {
     editorRef.current = ed;
-    // Listen for content changes via the model, not onChange prop (avoids React re-render lag)
     ed.onDidChangeModelContent(() => {
       codeRef.current = ed.getValue();
     });
-    // Auto-focus so user can type immediately
     ed.focus();
   }
 
   async function handleSubmit() {
-    const code = editorRef.current?.getValue() ?? codeRef.current;
-    if (!code.trim() || isSubmitting) return;
+    const content = isTextMode
+      ? textRef.current
+      : (editorRef.current?.getValue() ?? codeRef.current);
+
+    if (!content.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
     setResult(null);
@@ -107,8 +133,8 @@ export function CodeEditor({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          code,
-          language,
+          code: content,
+          language: isTextMode ? 'text' : language,
           task_title: taskTitle,
           task_description: taskDescription,
           plan_id: planId,
@@ -132,12 +158,10 @@ export function CodeEditor({
   }
 
   return (
-    // Backdrop — clicking outside closes modal
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      {/* Modal — NO overflow-hidden so Monaco events aren't blocked */}
       <div className="w-full max-w-4xl bg-[#1e1e1e] rounded-2xl shadow-2xl flex flex-col"
         style={{ maxHeight: '92vh' }}>
 
@@ -150,14 +174,16 @@ export function CodeEditor({
             <h3 className="text-white font-semibold text-sm truncate">{taskTitle}</h3>
           </div>
 
-          {/* Language picker */}
+          {/* Language / mode picker */}
           <select
             value={language}
             onChange={(e) => handleLanguageChange(e.target.value)}
             className="text-xs font-medium bg-[#3c3c3c] text-white/80 border border-white/10 rounded-md px-3 py-1.5 focus:outline-none focus:border-white/30 cursor-pointer"
           >
             {LANGUAGES.map((l) => (
-              <option key={l.value} value={l.value}>{l.label}</option>
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
             ))}
           </select>
 
@@ -171,32 +197,47 @@ export function CodeEditor({
           <p className="text-white/50 text-xs leading-relaxed">{taskDescription}</p>
         </div>
 
-        {/* ── Monaco editor — explicit pixel height, no overflow-hidden ── */}
-        <div className="shrink-0" style={{ height: '380px' }}>
-          <Editor
-            key={editorKey}
-            height={380}
-            language={language}
-            defaultValue={codeRef.current}
-            onMount={handleEditorMount}
-            theme="vs-dark"
-            options={{
-              fontSize: 14,
-              lineHeight: 22,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              padding: { top: 14, bottom: 14 },
-              fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-              fontLigatures: true,
-              cursorBlinking: 'smooth',
-              renderLineHighlight: 'gutter',
-              tabSize: 2,
-              wordWrap: 'on',
-              automaticLayout: true, // reflow on container resize
-              scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
-            }}
-          />
-        </div>
+        {/* ── Editor area ─────────────────────────────────────── */}
+        {isTextMode ? (
+          /* Text answer mode — plain textarea */
+          <div className="shrink-0" style={{ height: '380px' }}>
+            <textarea
+              defaultValue={textRef.current}
+              onChange={(e) => { textRef.current = e.target.value; }}
+              placeholder="Write your answer here — explain concepts, describe your approach, or answer the question in your own words…"
+              autoFocus
+              className="w-full h-full bg-[#1e1e1e] text-white/90 text-sm leading-relaxed p-5 resize-none focus:outline-none placeholder:text-white/20"
+              style={{ fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif" }}
+            />
+          </div>
+        ) : (
+          /* Code mode — Monaco editor */
+          <div className="shrink-0" style={{ height: '380px' }}>
+            <Editor
+              key={editorKey}
+              height={380}
+              language={language}
+              defaultValue={codeRef.current}
+              onMount={handleEditorMount}
+              theme="vs-dark"
+              options={{
+                fontSize: 14,
+                lineHeight: 22,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                padding: { top: 14, bottom: 14 },
+                fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+                fontLigatures: true,
+                cursorBlinking: 'smooth',
+                renderLineHighlight: 'gutter',
+                tabSize: 2,
+                wordWrap: 'on',
+                automaticLayout: true,
+                scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+              }}
+            />
+          </div>
+        )}
 
         {/* ── Result ─────────────────────────────────────────── */}
         {result && (
@@ -246,9 +287,17 @@ export function CodeEditor({
 
         {/* ── Footer ─────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3 bg-[#252526] rounded-b-2xl border-t border-white/5 shrink-0">
-          <span className="text-white/25 text-xs">
-            {taskKey === 'practice' ? '+30 XP on pass' : '+20 XP on pass'}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-white/25 text-xs">
+              {taskKey === 'practice' ? '+30 XP on pass' : '+20 XP on pass'}
+            </span>
+            {isTextMode && (
+              <span className="text-white/15 text-[10px] flex items-center gap-1">
+                <span className="material-symbols-outlined text-[11px]">edit_note</span>
+                Text answer mode
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <button onClick={onClose} className="text-xs text-white/40 hover:text-white/70 transition-colors">
               Cancel
