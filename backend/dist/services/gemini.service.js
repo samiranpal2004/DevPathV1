@@ -7,6 +7,8 @@ exports.generateTopicCurriculumRaw = generateTopicCurriculumRaw;
 exports.generateSkillQuiz = generateSkillQuiz;
 exports.evaluateCode = evaluateCode;
 exports.getMicroLesson = getMicroLesson;
+exports.analyzeVideoForQuiz = analyzeVideoForQuiz;
+exports.generatePersonalizedPlan = generatePersonalizedPlan;
 exports.isQuotaError = isQuotaError;
 /**
  * All Gemini API calls live here. Never call Gemini directly from routes.
@@ -65,14 +67,68 @@ async function parseVideoUrl(url) {
     return extractJson(text);
 }
 async function parseVideoUrlRaw(url) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-    // Pass the YouTube URL as fileData so Gemini actually watches the video
-    // instead of just reading the URL string and hallucinating content.
-    const result = await model.generateContent([
-        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
-        { text: VIDEO_PARSER_PROMPT_TEXT },
-    ]);
-    return result.response.text().trim();
+    // Step 1 — Extract video ID from URL
+    // Handles all formats:
+    // youtube.com/watch?v=ID
+    // youtube.com/watch?v=ID&list=PLAYLIST&index=4
+    // youtu.be/ID
+    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    const videoId = videoIdMatch?.[1];
+    let videoContext = '';
+    // Step 2 — Fetch real title from YouTube oEmbed
+    // oEmbed is completely free — no API key required
+    // Returns the actual video title so Gemini knows 
+    // exactly what the video is about
+    if (videoId) {
+        try {
+            const oEmbedUrl = `https://www.youtube.com/oembed` +
+                `?url=https://www.youtube.com/watch?v=${videoId}` +
+                `&format=json`;
+            const response = await fetch(oEmbedUrl);
+            if (response.ok) {
+                const data = await response.json();
+                videoContext = [
+                    data.title ? `Video title: "${data.title}"` : '',
+                    data.author_name ? `Channel: ${data.author_name}` : '',
+                ]
+                    .filter(Boolean)
+                    .join('\n');
+                console.log('[Gemini] oEmbed success:', videoContext);
+            }
+            else {
+                console.warn('[Gemini] oEmbed returned non-OK status:', response.status);
+            }
+        }
+        catch (err) {
+            // oEmbed failed — continue with URL only
+            // Gemini will still try its best
+            console.warn('[Gemini] oEmbed fetch failed:', err);
+        }
+    }
+    // Step 3 — Build contextual prompt with real video info
+    // NEVER use fileData — it hallucinates for unknown videos
+    const contextBlock = videoContext
+        ? `You are generating a study plan for this specific video:\n${videoContext}\nURL: ${url}`
+        : `You are generating a study plan for this YouTube video:\nURL: ${url}`;
+    const fullPrompt = `${contextBlock}
+
+The study plan MUST be based on the actual topic of this video.
+If the video title mentions DSA — generate DSA content.
+If the video title mentions React — generate React content.
+If the video title mentions Python — generate Python content.
+Do NOT default to Python or JavaScript if the topic is different.
+
+${VIDEO_PARSER_PROMPT_TEXT}`;
+    console.log('[Gemini] Sending prompt with context:', contextBlock);
+    // Step 4 — Call Gemini with text prompt (not fileData)
+    const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-pro'
+    });
+    const result = await model.generateContent(fullPrompt);
+    const text = result.response.text().trim();
+    console.log('[Gemini] Raw response length:', text.length);
+    console.log('[Gemini] Response preview:', text.slice(0, 200));
+    return text;
 }
 /**
  * Generate a curriculum from a topic name using Gemini 1.5 Pro.
@@ -82,7 +138,11 @@ async function generateTopicCurriculum(topic, skillTier = 'beginner') {
     return extractJson(text);
 }
 async function generateTopicCurriculumRaw(topic, skillTier = 'beginner') {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    // Use flash for topic curriculum — saves pro quota 
+    // for video parsing where accuracy matters most
+    const model = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash'
+    });
     const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
     return result.response.text().trim();
 }
@@ -169,6 +229,92 @@ function extractJson(text) {
     catch {
         throw new Error(`Gemini returned invalid JSON: ${stripped.slice(0, 200)}`);
     }
+}
+/**
+ * Analyze a YouTube video and generate quiz questions to assess the user's
+ * level on the video's topic.  Returns both the video analysis and questions.
+ *
+ * Step 1 of the new two-step parse flow.
+ */
+async function analyzeVideoForQuiz(url) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `Watch this YouTube video carefully and do TWO things:
+
+1. Analyse the video content — extract the main topic, key concepts taught, estimated difficulty, total duration.
+2. Generate 3-5 multiple-choice questions that test a learner's EXISTING knowledge of the topic covered in this video. These questions should help judge whether the learner is a beginner, familiar, or intermediate with this topic. Questions should NOT test video-specific content — they should test prerequisite/foundational knowledge of the topic.
+
+Return ONLY valid JSON with this structure:
+{
+  "analysis": {
+    "topic": "string (main topic of the video)",
+    "concepts": ["string (key concepts taught)"],
+    "difficulty_estimate": "beginner|intermediate|advanced",
+    "total_duration_minutes": number,
+    "summary": "string (2-3 sentence summary of what the video teaches)"
+  },
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string", "string", "string", "string"],
+      "correctIndex": number (0-3)
+    }
+  ]
+}
+No explanation. No markdown. Only the JSON object.`;
+    const result = await model.generateContent([
+        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
+        { text: prompt },
+    ]);
+    const text = result.response.text().trim();
+    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped);
+}
+/**
+ * Generate a personalised day-wise plan based on the video analysis and the
+ * user's assessed skill level.
+ *
+ * Step 2 of the new two-step parse flow.
+ */
+async function generatePersonalizedPlan(analysis, skillLevel, dailyTimeMinutes = 20) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `You are building a personalised coding study plan.
+
+Video topic: "${analysis.topic}"
+Concepts covered: ${JSON.stringify(analysis.concepts)}
+Video duration: ${analysis.total_duration_minutes} minutes
+Video difficulty: ${analysis.difficulty_estimate}
+Video summary: ${analysis.summary}
+
+Learner's assessed skill level for this topic: ${skillLevel}
+Daily time budget: ${dailyTimeMinutes} minutes
+
+RULES for generating the plan:
+- If the learner is "beginner": break down into more days with simpler tasks, more explanation, easier practice problems.
+- If the learner is "familiar": moderate pace, balanced tasks, intermediate practice.
+- If the learner is "intermediate": fewer days, more challenging tasks, advanced practice problems, skip basics.
+- Each day should fit within the ${dailyTimeMinutes}-minute daily budget.
+- Easy topics can be covered in 1-2 days. Hard topics should take more days.
+- Adjust the number of days based on BOTH the topic complexity AND the learner's level.
+- Each day must have exactly: task1, task2, and a practice problem.
+
+Return ONLY valid JSON with this structure:
+{
+  "title": "string",
+  "total_duration_minutes": ${analysis.total_duration_minutes},
+  "checkpoints": [
+    {
+      "day": number,
+      "title": "string",
+      "concepts": ["string"],
+      "task1": { "title": "string", "description": "string", "duration_minutes": number },
+      "task2": { "title": "string", "description": "string", "duration_minutes": number },
+      "practice": { "title": "string", "description": "string", "difficulty": "beginner|intermediate|advanced" }
+    }
+  ]
+}
+No explanation. No markdown. Only the JSON object.`;
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
 }
 /**
  * Detect if an error is a Gemini quota / rate-limit error.
