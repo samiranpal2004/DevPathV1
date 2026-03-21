@@ -4,6 +4,7 @@ import { useUser } from "@clerk/nextjs";
 
 import { Navbar } from "@/components/Navbar";
 import { VideoMission } from "@/components/VideoMission";
+import { ActiveMission } from "@/components/ActiveMission";
 
 export default function Dashboard() {
   const { user } = useUser();
@@ -20,102 +21,11 @@ export default function Dashboard() {
           <p className="text-lg text-on-surface-variant max-w-xl">Your focus path is ready. Complete today's mission to maintain your 12-day momentum.</p>
         </header>
 
-        {/* Main Mission Canvas */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
-          {/* Daily Mission Card */}
-          <div className="lg:col-span-8 bg-surface-container-lowest rounded-lg p-10 shadow-[0_20px_50px_rgba(63,72,73,0.04)] relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-tertiary to-tertiary-container opacity-50"></div>
-            <div className="flex justify-between items-end mb-10">
-              <div>
-                <span className="text-xs font-bold tracking-widest text-tertiary uppercase mb-2 block">Active Mission</span>
-                <h2 className="text-3xl font-bold text-on-background tracking-tight">Advanced React Patterns</h2>
-              </div>
-              <span className="text-sm font-medium text-on-surface-variant bg-surface-container-low px-4 py-2 rounded-full">Estimated: 45 min</span>
-            </div>
-
-            <div className="space-y-6">
-              {/* Task 1 */}
-              <div className="flex items-center p-6 bg-surface-container-low/40 hover:bg-surface-container-low transition-all duration-300 rounded-lg group/item cursor-pointer">
-                <div className="w-8 h-8 rounded-full border-2 border-primary-container/30 flex items-center justify-center mr-6 group-hover/item:border-primary transition-colors">
-                  <span className="material-symbols-outlined text-primary scale-0 group-hover/item:scale-100 transition-transform">check</span>
-                </div>
-                <div className="flex-grow">
-                  <h3 className="font-bold text-on-background">Implement Higher Order Components</h3>
-                  <p className="text-sm text-on-surface-variant">Review the documentation and create a basic auth wrapper.</p>
-                </div>
-                <span className="text-xs font-bold text-primary-container bg-primary-fixed px-3 py-1 rounded-full">15 min</span>
-              </div>
-
-              {/* Task 2 */}
-              <div className="flex items-center p-6 bg-surface-container-low/40 hover:bg-surface-container-low transition-all duration-300 rounded-lg group/item cursor-pointer">
-                <div className="w-8 h-8 rounded-full border-2 border-primary-container/30 flex items-center justify-center mr-6 group-hover/item:border-primary transition-colors">
-                  <span className="material-symbols-outlined text-primary scale-0 group-hover/item:scale-100 transition-transform">check</span>
-                </div>
-                <div className="flex-grow">
-                  <h3 className="font-bold text-on-background">Custom Hook Refactoring</h3>
-                  <p className="text-sm text-on-surface-variant">Convert the useFetch logic to handle retry states.</p>
-                </div>
-                <span className="text-xs font-bold text-primary-container bg-primary-fixed px-3 py-1 rounded-full">20 min</span>
-              </div>
-
-              {/* Practice Problem */}
-              <div className="flex items-center p-6 bg-secondary-container/20 hover:bg-secondary-container/30 transition-all duration-300 rounded-lg group/item cursor-pointer relative overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-tertiary"></div>
-                <div className="w-8 h-8 rounded-full border-2 border-tertiary/30 flex items-center justify-center mr-6 group-hover/item:border-tertiary transition-colors">
-                  <span className="material-symbols-outlined text-tertiary scale-0 group-hover/item:scale-100 transition-transform">check</span>
-                </div>
-                <div className="flex-grow">
-                  <h3 className="font-bold text-on-background">Practice: Memoization Challenge</h3>
-                  <p className="text-sm text-on-surface-variant">Solve the compute-heavy list rendering bottleneck.</p>
-                </div>
-                <span className="text-xs font-bold text-tertiary bg-tertiary-fixed px-3 py-1 rounded-full">10 min</span>
-              </div>
-            </div>
-
-            <div className="mt-12 flex justify-center">
-              <button className="px-12 py-4 rounded-full bg-gradient-to-r from-primary to-primary-container text-on-primary font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-95 transition-all">
-                Complete Session
-              </button>
-            </div>
-          </div>
-
-          {/* Side Actions & Stats */}
-          <div className="lg:col-span-4 space-y-8">
-            {/* Mode Buttons */}
-            <div className="bg-surface-container-low rounded-lg p-8 space-y-4">
-              <h3 className="text-sm font-bold text-on-surface-variant tracking-widest uppercase mb-4">Daily Rhythm</h3>
-              <button className="w-full py-3 px-6 rounded-full border border-primary/20 bg-surface-container-lowest text-primary font-bold hover:bg-primary hover:text-white transition-all text-sm flex items-center justify-between group">
-                Normal Day
-                <span className="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity">check_circle</span>
-              </button>
-              <button className="w-full py-3 px-6 rounded-full border border-outline-variant/30 text-on-surface-variant font-bold hover:border-primary/40 transition-all text-sm flex items-center justify-between">
-                Busy Day
-                <span className="text-[10px] text-tertiary bg-tertiary-fixed px-2 py-0.5 rounded-full">Quick Mode</span>
-              </button>
-              <button className="w-full py-3 px-6 rounded-full border border-outline-variant/30 text-on-surface-variant font-bold hover:border-error/40 transition-all text-sm flex items-center justify-between">
-                Skip Day
-                <span className="material-symbols-outlined text-sm">event_busy</span>
-              </button>
-            </div>
-
-            {/* Subtle Mini Stats Card */}
-            <div className="bg-primary/5 rounded-lg p-8">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-primary">analytics</span>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-primary/60 uppercase">Completion Rate</p>
-                  <p className="text-2xl font-black text-primary">84%</p>
-                </div>
-              </div>
-              <p className="text-sm text-on-surface-variant">You're in the top 5% of React learners this week. Keep the pace.</p>
-            </div>
-          </div>
-        </section>
-
-        {/* Video Mission — paste YouTube link, get tasks, earn XP */}
+        {/* YouTube URL input — paste link to generate tasks */}
         <VideoMission />
+
+        {/* Active Mission — real data from /api/mission/today */}
+        <ActiveMission />
 
         {/* Low Profile Heatmap Strip */}
         <footer className="mt-20">
