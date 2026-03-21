@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 
+import { supabaseAdmin } from '../lib/supabase';
+import { requireAuth } from '../middleware/requireAuth';
 import { RoomServiceError, roomService } from '../services/room.service';
 import { CreateRoomPayload, JoinRoomPayload, RoomType } from '../types/room.types';
 
@@ -120,6 +122,73 @@ router.post('/join', async (req: Request, res: Response): Promise<Response> => {
     }
 
     return sendError(res, 500, 'INTERNAL_ERROR', 'Unexpected error while joining room.');
+  }
+});
+
+router.get('/preview/:code', async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const code = String(req.params.code ?? '').trim().toUpperCase();
+
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      return sendError(res, 400, 'INVALID_CODE', 'Invalid room code');
+    }
+
+    const { data: room, error } = await supabaseAdmin
+      .from('rooms')
+      .select('id, code, name, type, status, max_members')
+      .eq('code', code)
+      .eq('status', 'active')
+      .single();
+
+    if (error || !room) {
+      return sendError(res, 404, 'NOT_FOUND', 'Room not found');
+    }
+
+    const { data: members } = await supabaseAdmin
+      .from('room_members')
+      .select('user_id, joined_at, users(display_name, avatar_url)')
+      .eq('room_id', room.id);
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: standings } = await supabaseAdmin
+      .from('room_daily_log')
+      .select('user_id, tasks_done, xp_earned, finish_position, users(display_name)')
+      .eq('room_id', room.id)
+      .eq('date', today)
+      .order('finish_position', { ascending: true, nullsFirst: false });
+
+    return sendSuccess(res, 200, {
+      room,
+      members: members ?? [],
+      todayStandings: standings ?? [],
+    });
+  } catch {
+    return sendError(res, 500, 'SERVER_ERROR', 'Failed to fetch preview');
+  }
+});
+
+router.get('/:id', requireAuth, async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const id = String(req.params.id ?? '').trim();
+
+    if (!isValidRoomId(id)) {
+      return sendError(res, 400, 'INVALID_UUID', 'Invalid room ID');
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('rooms')
+      .select('id, code, name, type, status, max_members, owner_id, created_at')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return sendError(res, 404, 'NOT_FOUND', 'Room not found');
+    }
+
+    return sendSuccess(res, 200, data);
+  } catch {
+    return sendError(res, 500, 'SERVER_ERROR', 'Failed to fetch room');
   }
 });
 

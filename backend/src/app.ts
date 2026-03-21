@@ -32,7 +32,18 @@ app.get('/health', (_req: Request, res: Response) => {
   return res.status(200).json({ status: 'ok' });
 });
 
-app.use('/api', requireAuth);
+app.use('/api', (req: Request, res: Response, next) => {
+  const isPublicRoomPreview =
+    req.path.startsWith('/rooms/preview/') ||
+    req.originalUrl.includes('/api/rooms/preview/');
+
+  if (isPublicRoomPreview) {
+    next();
+    return;
+  }
+
+  requireAuth(req, res, next);
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/mission', missionRoutes);
