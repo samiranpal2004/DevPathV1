@@ -57,6 +57,8 @@ export function VideoMission() {
     setTotalXp((prev) => prev + xp);
     showXpPop(xp);
     setEditorOpen(null);
+    // Notify navbar XP bar to refresh
+    window.dispatchEvent(new CustomEvent('devpath:xp-changed'));
   }
 
   async function analyzeVideo() {

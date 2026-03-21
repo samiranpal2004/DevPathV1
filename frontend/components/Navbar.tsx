@@ -1,6 +1,8 @@
 'use client';
 
 import { UserButton, useUser } from '@clerk/nextjs';
+import { XpBar } from './XpBar';
+import { StreakBadge } from './StreakBadge';
 
 export function Navbar() {
   const { user, isLoaded } = useUser();
@@ -10,12 +12,14 @@ export function Navbar() {
       <span className="text-white font-bold text-lg">DevPath</span>
 
       {isLoaded && user && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
+          <StreakBadge />
+          <XpBar />
+          <div className="w-px h-6 bg-gray-700" />
           <span className="text-gray-400 text-sm hidden sm:block">
             {user.firstName ?? user.emailAddresses[0]?.emailAddress}
           </span>
           <UserButton
-            afterSignOutUrl="/"
             appearance={{
               elements: {
                 avatarBox: 'w-8 h-8',

@@ -86,6 +86,8 @@ export function ActiveMission() {
     setSessionXp((prev) => prev + xp);
     showXpPop(xp);
     setEditorOpen(null);
+    // Notify navbar XP bar to refresh
+    window.dispatchEvent(new CustomEvent('devpath:xp-changed'));
   }
 
   // ── Loading skeleton ───────────────────────────────────────────────────────
