@@ -12,15 +12,15 @@ import {
 } from '@/lib/api/heatmap';
 
 const INTENSITY_COLORS = [
-  'bg-gray-800',        // 0 — no activity
-  'bg-green-900/70',    // 1
-  'bg-green-700',       // 2
-  'bg-green-500',       // 3
-  'bg-green-400',       // 4
+  'bg-surface-container-highest/60', // 0 — no activity
+  'bg-yellow-300/80',                // 1 — low
+  'bg-amber-400',                    // 2
+  'bg-orange-500',                   // 3
+  'bg-red-500',                      // 4 — high
 ];
 
 const SPECIAL_COLORS: Record<string, string> = {
-  room_win: 'bg-orange-500',
+  room_win: 'bg-cyan-500',
   streak_milestone: 'bg-yellow-500',
   level_up: 'bg-blue-500',
   perfect_day: 'bg-purple-500',
@@ -58,13 +58,9 @@ function formatDate(dateStr: string): string {
 function buildGrid(days: HeatmapDay[]): (HeatmapDay | null)[][] {
   if (days.length === 0) return [];
 
-  // First day's weekday (0=Sun, 1=Mon, ..., 6=Sat)
   const firstDow = new Date(days[0].date + 'T00:00:00').getDay();
-
-  // Pad with nulls so the first day falls on the correct row
   const padded: (HeatmapDay | null)[] = Array(firstDow).fill(null).concat(days);
 
-  // Build columns (weeks)
   const columns: (HeatmapDay | null)[][] = [];
   for (let i = 0; i < padded.length; i += 7) {
     const week = padded.slice(i, i + 7);
@@ -81,7 +77,6 @@ function getMonthPositions(columns: (HeatmapDay | null)[][]): { col: number; lab
   let lastMonth = -1;
 
   for (let c = 0; c < columns.length; c++) {
-    // Find first non-null day in this column
     const day = columns[c].find((d) => d !== null);
     if (!day) continue;
     const month = new Date(day.date + 'T00:00:00').getMonth();
@@ -127,15 +122,15 @@ export default function HeatmapPage() {
   const monthPositions = getMonthPositions(columns);
 
   return (
-    <div className="min-h-screen bg-gray-950">
+    <div className="min-h-screen bg-background">
       <Navbar />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-white">Activity Heatmap</h1>
-            <p className="text-gray-400 mt-1">Your coding consistency and milestone achievements.</p>
+            <h1 className="text-3xl font-bold text-on-background">Activity Heatmap</h1>
+            <p className="text-on-surface-variant/60 mt-1">Your coding consistency and milestone achievements.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             {FILTER_OPTIONS.map((opt) => (
@@ -144,8 +139,8 @@ export default function HeatmapPage() {
                 onClick={() => setFilter(opt.key)}
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   filter === opt.key
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                    ? 'bg-primary text-on-primary'
+                    : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-highest'
                 }`}
               >
                 {opt.label}
@@ -157,15 +152,15 @@ export default function HeatmapPage() {
         {/* Loading */}
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
         {/* Error */}
         {error && !loading && (
           <div className="text-center py-20">
-            <p className="text-red-400 mb-4">{error}</p>
-            <button onClick={fetchHeatmap} className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700">
+            <p className="text-error mb-4">{error}</p>
+            <button onClick={fetchHeatmap} className="px-4 py-2 bg-surface-container-low text-on-background rounded-lg hover:bg-surface-container-highest">
               Retry
             </button>
           </div>
@@ -174,13 +169,13 @@ export default function HeatmapPage() {
         {/* Heatmap grid */}
         {data && !loading && (
           <>
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 sm:p-8 relative overflow-hidden">
+            <div className="bg-surface-container-lowest border border-outline-variant/10 rounded-2xl p-6 sm:p-8 relative overflow-hidden shadow-[0_20px_50px_rgba(63,72,73,0.04)]">
               {/* Top accent line */}
-              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-green-500 to-green-700" />
+              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500" />
 
               <div className="flex gap-3">
                 {/* Day labels */}
-                <div className="flex flex-col justify-between text-[10px] text-gray-500 font-medium py-1 shrink-0" style={{ height: `${7 * 14 + 6 * 3}px` }}>
+                <div className="flex flex-col justify-between text-[10px] text-on-surface-variant/50 font-medium py-1 shrink-0" style={{ height: `${7 * 14 + 6 * 3}px` }}>
                   <span>Mon</span>
                   <span>Wed</span>
                   <span>Fri</span>
@@ -193,7 +188,7 @@ export default function HeatmapPage() {
                     {monthPositions.map((mp) => (
                       <span
                         key={mp.col}
-                        className="absolute text-[10px] text-gray-500 font-medium"
+                        className="absolute text-[10px] text-on-surface-variant/50 font-medium"
                         style={{ left: `${mp.col * 17}px` }}
                       >
                         {mp.label}
@@ -210,7 +205,6 @@ export default function HeatmapPage() {
                       minWidth: `${columns.length * 17}px`,
                     }}
                   >
-                    {/* Render column by column (each column = 1 week, 7 rows) */}
                     {columns.map((week, colIdx) =>
                       week.map((day, rowIdx) => {
                         if (!day) {
@@ -220,7 +214,7 @@ export default function HeatmapPage() {
                         return (
                           <div
                             key={day.date}
-                            className={`w-[14px] h-[14px] rounded-sm ${color} cursor-pointer hover:ring-1 hover:ring-white/30 transition-all`}
+                            className={`w-[14px] h-[14px] rounded-sm ${color} cursor-pointer hover:ring-1 hover:ring-on-background/20 transition-all`}
                             style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }}
                             onMouseEnter={(e) => {
                               setHoveredDay(day);
@@ -240,7 +234,7 @@ export default function HeatmapPage() {
               </div>
 
               {/* Legend */}
-              <div className="flex items-center justify-end gap-3 mt-6 text-xs text-gray-500 font-medium flex-wrap">
+              <div className="flex items-center justify-end gap-3 mt-6 text-xs text-on-surface-variant/50 font-medium flex-wrap">
                 <span>Less</span>
                 <div className="flex gap-1">
                   {INTENSITY_COLORS.map((c, i) => (
@@ -248,10 +242,10 @@ export default function HeatmapPage() {
                   ))}
                 </div>
                 <span>More</span>
-                <div className="w-px h-3 bg-gray-700 mx-1" />
+                <div className="w-px h-3 bg-outline-variant/20 mx-1" />
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded-sm bg-orange-500" />
+                    <div className="w-3 h-3 rounded-sm bg-cyan-500" />
                     <span>Room Win</span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -264,7 +258,7 @@ export default function HeatmapPage() {
               {/* Tooltip */}
               {hoveredDay && tooltipPos && (
                 <div
-                  className="fixed z-50 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-xl pointer-events-none border border-gray-700"
+                  className="fixed z-50 bg-on-background text-surface text-xs rounded-lg px-3 py-2 shadow-xl pointer-events-none"
                   style={{
                     left: tooltipPos.x,
                     top: tooltipPos.y,
@@ -272,13 +266,13 @@ export default function HeatmapPage() {
                   }}
                 >
                   <p className="font-semibold">{formatDate(hoveredDay.date)}</p>
-                  <p className="text-gray-300 mt-0.5">
+                  <p className="text-surface-container-highest mt-0.5">
                     {hoveredDay.count > 0
                       ? `${hoveredDay.count} contribution${hoveredDay.count !== 1 ? 's' : ''}`
                       : 'No activity'}
                   </p>
                   {hoveredDay.count > 0 && (
-                    <div className="text-gray-400 mt-0.5 space-x-2">
+                    <div className="text-surface-container-highest/80 mt-0.5 space-x-2">
                       {hoveredDay.types.solo > 0 && <span>Solo: {hoveredDay.types.solo}</span>}
                       {hoveredDay.types.room > 0 && <span>Room: {hoveredDay.types.room}</span>}
                       {hoveredDay.types.quests > 0 && <span>Quests: {hoveredDay.types.quests}</span>}
@@ -294,38 +288,38 @@ export default function HeatmapPage() {
                 icon="stacked_line_chart"
                 label="Total Contributions"
                 value={data.stats.totalContributions.toLocaleString()}
-                accent="text-green-400"
+                accent="text-primary"
               />
               <StatCard
                 icon="local_fire_department"
                 label="Current Streak"
                 value={`${data.stats.currentStreak} day${data.stats.currentStreak !== 1 ? 's' : ''}`}
-                accent="text-orange-400"
+                accent="text-orange-500"
                 subtitle={data.stats.currentStreak >= 7 ? 'Keep it up!' : undefined}
               />
               <StatCard
                 icon="military_tech"
                 label="Longest Streak"
                 value={`${data.stats.longestStreak} day${data.stats.longestStreak !== 1 ? 's' : ''}`}
-                accent="text-yellow-400"
+                accent="text-tertiary"
               />
               <StatCard
                 icon="calendar_today"
                 label="Active Days"
                 value={data.stats.activeDays.toLocaleString()}
-                accent="text-blue-400"
+                accent="text-blue-600"
                 subtitle="Last 365 days"
               />
             </div>
 
             {/* Breakdown */}
             {(data.breakdown.solo > 0 || data.breakdown.room > 0 || data.breakdown.quests > 0) && (
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mt-6">
-                <h3 className="text-white font-semibold mb-4">Activity Breakdown</h3>
+              <div className="bg-surface-container-lowest border border-outline-variant/10 rounded-2xl p-6 mt-6 shadow-[0_20px_50px_rgba(63,72,73,0.04)]">
+                <h3 className="text-on-background font-semibold mb-4">Activity Breakdown</h3>
                 <div className="grid grid-cols-3 gap-4">
-                  <BreakdownItem label="Solo Tasks" value={data.breakdown.solo} color="bg-green-500" total={data.stats.totalContributions} />
-                  <BreakdownItem label="Room Battles" value={data.breakdown.room} color="bg-orange-500" total={data.stats.totalContributions} />
-                  <BreakdownItem label="Quests" value={data.breakdown.quests} color="bg-blue-500" total={data.stats.totalContributions} />
+                  <BreakdownItem label="Solo Tasks" value={data.breakdown.solo} color="bg-orange-500" total={data.stats.totalContributions} />
+                  <BreakdownItem label="Room Battles" value={data.breakdown.room} color="bg-cyan-500" total={data.stats.totalContributions} />
+                  <BreakdownItem label="Quests" value={data.breakdown.quests} color="bg-purple-500" total={data.stats.totalContributions} />
                 </div>
               </div>
             )}
@@ -335,7 +329,7 @@ export default function HeatmapPage() {
         {/* Empty state */}
         {data && !loading && data.stats.totalContributions === 0 && (
           <div className="text-center py-12 mt-6">
-            <p className="text-gray-400 text-lg">No activity yet. Complete your first task to start filling your heatmap!</p>
+            <p className="text-on-surface-variant/60 text-lg">No activity yet. Complete your first task to start filling your heatmap!</p>
           </div>
         )}
       </main>
@@ -351,13 +345,13 @@ function StatCard({ icon, label, value, accent, subtitle }: {
   subtitle?: string;
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+    <div className="bg-surface-container-lowest border border-outline-variant/10 rounded-2xl p-5 shadow-[0_20px_50px_rgba(63,72,73,0.04)]">
       <div className="flex items-center gap-2 mb-3">
         <span className={`material-symbols-outlined text-lg ${accent}`}>{icon}</span>
-        <span className="text-gray-400 text-sm font-medium">{label}</span>
+        <span className="text-on-surface-variant/60 text-sm font-medium">{label}</span>
       </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      {subtitle && <p className="text-gray-500 text-xs mt-1">{subtitle}</p>}
+      <p className="text-2xl font-bold text-on-background">{value}</p>
+      {subtitle && <p className="text-on-surface-variant/40 text-xs mt-1">{subtitle}</p>}
     </div>
   );
 }
@@ -372,10 +366,10 @@ function BreakdownItem({ label, value, color, total }: {
   return (
     <div>
       <div className="flex justify-between text-sm mb-1">
-        <span className="text-gray-400">{label}</span>
-        <span className="text-white font-medium">{value}</span>
+        <span className="text-on-surface-variant/60">{label}</span>
+        <span className="text-on-background font-medium">{value}</span>
       </div>
-      <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-surface-container-highest/40 rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${pct}%` }} />
       </div>
     </div>
