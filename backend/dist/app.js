@@ -14,7 +14,16 @@ const room_routes_1 = __importDefault(require("./routes/room.routes"));
 const gamification_routes_1 = __importDefault(require("./routes/gamification.routes"));
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
 const app = (0, express_1.default)();
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)({
+    origin: [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        process.env.FRONTEND_URL ?? '',
+    ].filter(Boolean),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+}));
 app.use(express_1.default.json());
 app.use(requireAuth_1.clerkAuth);
 app.get('/health', (_req, res) => {

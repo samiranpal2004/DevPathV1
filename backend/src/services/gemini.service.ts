@@ -67,7 +67,7 @@ export async function parseVideoUrl(url: string): Promise<Record<string, unknown
 }
 
 export async function parseVideoUrlRaw(url: string): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
   const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
   return result.response.text().trim();
 }
@@ -81,16 +81,44 @@ export async function generateTopicCurriculum(topic: string, skillTier = 'beginn
 }
 
 export async function generateTopicCurriculumRaw(topic: string, skillTier = 'beginner'): Promise<string> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
   const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
   return result.response.text().trim();
+}
+
+export interface QuizQuestion {
+    question: string;
+    options: string[];
+    correctIndex: number;
+}
+
+/**
+ * Generate 5 skill-assessment questions for the given goal using Gemini 1.5 Flash.
+ */
+export async function generateSkillQuiz(goal: string): Promise<QuizQuestion[]> {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `Generate exactly 5 multiple-choice questions to assess a beginner's coding knowledge for the goal: "${goal}".
+Return ONLY valid JSON as an array of 5 objects:
+[
+  {
+    "question": "string",
+    "options": ["string", "string", "string", "string"],
+    "correctIndex": number
+  }
+]
+Questions should cover: variables, loops, functions, debugging, and data structures relevant to the goal.
+No explanation. No markdown. Only the JSON array.`;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped) as QuizQuestion[];
 }
 
 /**
  * Get a micro-lesson for a stuck learner using Gemini 1.5 Flash.
  */
 export async function getMicroLesson({ topic, problem, errorTypes, skillTier }: MicroLessonContext): Promise<string> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `The learner is stuck on ${topic}.
 Problem: ${problem}.
 Their recent errors: ${errorTypes.join(', ')}.

@@ -6,13 +6,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseUrlSchema = exports.preferencesSchema = exports.quizResultSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.quizResultSchema = joi_1.default.object({
-    // answers: array of 5 booleans (true = correct)
+    // answers: array of booleans (true = correct). Gemini may return 3–10 questions.
     answers: joi_1.default.array()
         .items(joi_1.default.boolean().required())
-        .length(5)
+        .min(1)
         .required()
         .messages({
-        'array.length': 'Exactly 5 answers required',
         'any.required': 'answers is required',
     }),
 });

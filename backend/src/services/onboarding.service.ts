@@ -11,11 +11,12 @@ export interface QuizResult {
     score: number;
 }
 
-// Maps correct-answer count → skill_tier
-// 0-1 correct → beginner, 2-3 → familiar, 4-5 → intermediate
-export function mapScoreToSkillTier(correctCount: number): SkillTier {
-    if (correctCount <= 1) return 'beginner';
-    if (correctCount <= 3) return 'familiar';
+// Maps correct-answer percentage → skill_tier
+// <40% → beginner, 40–79% → familiar, ≥80% → intermediate
+export function mapScoreToSkillTier(correctCount: number, total: number = 5): SkillTier {
+    const pct = total > 0 ? correctCount / total : 0;
+    if (pct < 0.4) return 'beginner';
+    if (pct < 0.8) return 'familiar';
     return 'intermediate';
 }
 
@@ -24,11 +25,11 @@ export function mapScoreToSkillTier(correctCount: number): SkillTier {
  */
 export async function saveQuizResult(userId: string, answers: boolean[]): Promise<QuizResult> {
     const score = answers.filter(Boolean).length;
-    const skill_tier = mapScoreToSkillTier(score);
+    const skill_tier = mapScoreToSkillTier(score, answers.length);
 
     const { error } = await supabaseAdmin
         .from('user_preferences')
-        .upsert({ user_id: userId, skill_tier }, { onConflict: 'user_id' });
+        .upsert({ user_id: userId, skill_tier });
 
     if (error) throw new Error(`DB error saving quiz result: ${error.message}`);
 
@@ -41,7 +42,7 @@ export async function saveQuizResult(userId: string, answers: boolean[]): Promis
 export async function savePreferences(userId: string, goal: string, daily_time_minutes: number): Promise<void> {
     const { error } = await supabaseAdmin
         .from('user_preferences')
-        .upsert({ user_id: userId, goal, daily_time_minutes }, { onConflict: 'user_id' });
+        .upsert({ user_id: userId, goal, daily_time_minutes });
 
     if (error) throw new Error(`DB error saving preferences: ${error.message}`);
 }

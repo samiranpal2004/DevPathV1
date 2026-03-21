@@ -46,8 +46,7 @@ export function buildCacheKey(url: string, userId: string, skillTier: string): s
  * Check if a parsed plan already exists for this user + url + skill_tier.
  * Returns the existing daily_plan row or null.
  */
-async function getCachedPlan(url: string, userId: string, skillTier: string): Promise<Record<string, unknown> | null> {
-    const cacheKey = buildCacheKey(url, userId, skillTier);
+async function getCachedPlan(url: string, userId: string): Promise<Record<string, unknown> | null> {
     const { data } = await supabaseAdmin
         .from('daily_plans')
         .select('*')
@@ -57,12 +56,7 @@ async function getCachedPlan(url: string, userId: string, skillTier: string): Pr
         .order('generated_at', { ascending: false })
         .limit(1)
         .single();
-    // Also store cache_key in metadata for demo-day precache lookup
-    const row = data as Record<string, unknown> | null;
-    if (row && row['cache_key'] === cacheKey) return row;
-    // Fallback: match by url + user_id (cache_key may not exist on older rows)
-    if (row) return row;
-    return null;
+    return (data as Record<string, unknown>) || null;
 }
 
 /**
@@ -77,8 +71,6 @@ async function storePlan(
 ): Promise<Record<string, unknown>> {
     const checkpoints = (parsedPlan as { checkpoints?: unknown[] }).checkpoints;
     const totalDays = Array.isArray(checkpoints) ? checkpoints.length : 30;
-    const cacheKey = url ? buildCacheKey(url, userId, skillTier) : null;
-
     // Deactivate any existing active plan for this user
     await supabaseAdmin
         .from('daily_plans')
@@ -97,7 +89,6 @@ async function storePlan(
             current_day: 1,
             status: 'active',
             checkpoints: checkpoints,
-            cache_key: cacheKey,
         })
         .select()
         .single();
@@ -116,7 +107,7 @@ export async function parseUrl(
     fallbackTopic: string | null = null,
 ): Promise<ParseResult> {
     // Step 1 — cache check
-    const cached = await getCachedPlan(url, userId, skillTier);
+    const cached = await getCachedPlan(url, userId);
     if (cached) {
         return { plan: cached, fromCache: true, fallback: null };
     }

@@ -19,5 +19,7 @@ function requireAuth(req, res, next) {
     }
     req.clerkUserId = clerkUserId;
     req.userId = (0, userId_1.toInternalUserId)(clerkUserId);
+    // Inject so existing route handlers that read req.headers['x-user-id'] work transparently
+    req.headers['x-user-id'] = req.userId;
     next();
 }
