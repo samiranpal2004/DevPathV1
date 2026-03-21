@@ -11,19 +11,33 @@ export interface HeatmapDay {
   };
 }
 
+export interface HeatmapStats {
+  totalContributions: number;
+  currentStreak: number;
+  longestStreak: number;
+  activeDays: number;
+}
+
 export interface HeatmapPayload {
+  userId: string;
   days: HeatmapDay[];
-  stats: {
-    total_contributions: number;
-    current_streak: number;
-    longest_streak: number;
-    active_days: number;
+  stats: HeatmapStats;
+  breakdown: {
+    solo: number;
+    room: number;
+    quests: number;
   };
 }
 
 export type FilterMode = 'all' | 'solo' | 'room' | 'quests';
 
-/** Get 365-day contribution data for any user. */
+/** Get 365-day contribution data for the authenticated user. */
+export async function getMyHeatmap(): Promise<HeatmapPayload> {
+  const res = await api.get('/api/heatmap/me');
+  return res.data;
+}
+
+/** Get 365-day contribution data for any user by ID. */
 export async function getHeatmap(userId: string): Promise<HeatmapPayload> {
   const res = await api.get(`/api/heatmap/${userId}`);
   return res.data;
