@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { UserButton, useUser } from '@clerk/nextjs';
 import { XpBar } from './XpBar';
 import { StreakBadge } from './StreakBadge';
@@ -15,6 +16,13 @@ export function Navbar() {
         <div className="flex items-center gap-4">
           <StreakBadge />
           <XpBar />
+          <Link
+            href="/leaderboard"
+            className="text-gray-400 hover:text-white transition-colors text-sm flex items-center gap-1"
+          >
+            <span className="material-symbols-outlined text-base">leaderboard</span>
+            <span className="hidden sm:inline">Leaderboard</span>
+          </Link>
           <div className="w-px h-6 bg-gray-700" />
           <span className="text-gray-400 text-sm hidden sm:block">
             {user.firstName ?? user.emailAddresses[0]?.emailAddress}

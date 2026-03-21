@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   '/onboarding',
   '/dashboard',
   '/heatmap',
+  '/leaderboard',
   '/lesson',
   '/room(.*)',
   '/milestones(.*)',
