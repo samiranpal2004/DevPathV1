@@ -4,21 +4,10 @@ import { getStreakStatus } from '../services/mission.service';
 
 const router = express.Router();
 
-function requireUser(req: Request, res: Response): string | null {
-    const raw = req.headers['x-user-id'];
-    const userId = Array.isArray(raw) ? raw[0] : raw;
-    if (!userId) {
-        res.status(401).json({ error: 'Unauthorized: x-user-id header required' });
-        return null;
-    }
-    return userId;
-}
-
 // ─── GET /api/me/streak ───────────────────────────────────────────────────────
 
 router.get('/streak', async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const status = await getStreakStatus(userId);

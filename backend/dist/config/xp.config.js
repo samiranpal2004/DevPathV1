@@ -5,6 +5,8 @@ exports.getLevelFromXp = getLevelFromXp;
 exports.getXpToNextLevel = getXpToNextLevel;
 exports.getProgressPercent = getProgressPercent;
 exports.XP_REWARDS = {
+    task1_complete: 20,
+    task2_complete: 20,
     task_complete: 20,
     practice_solved: 30,
     full_day_complete: 25,

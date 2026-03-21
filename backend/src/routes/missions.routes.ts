@@ -13,21 +13,10 @@ import {
 
 const router = express.Router();
 
-function requireUser(req: Request, res: Response): string | null {
-    const raw = req.headers['x-user-id'];
-    const userId = Array.isArray(raw) ? raw[0] : raw;
-    if (!userId) {
-        res.status(401).json({ error: 'Unauthorized: x-user-id header required' });
-        return null;
-    }
-    return userId;
-}
-
 // ─── GET /api/mission/today ───────────────────────────────────────────────────
 
 router.get('/today', async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const mission = await getTodayMission(userId);
@@ -48,8 +37,7 @@ router.get('/today', async (req: Request, res: Response): Promise<void> => {
 // ─── POST /api/mission/complete-task ─────────────────────────────────────────
 
 router.post('/complete-task', validate(completeTaskSchema), async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const { task_num, day_number, room_id } = req.body as { task_num: number; day_number: number; room_id?: string };
@@ -65,8 +53,7 @@ router.post('/complete-task', validate(completeTaskSchema), async (req: Request,
 // ─── POST /api/mission/submit-practice ───────────────────────────────────────
 
 router.post('/submit-practice', validate(submitPracticeSchema), async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const { plan_id, day_number, passed, submitted_code, error_type, hint_used } = req.body as {
@@ -99,8 +86,7 @@ router.post('/submit-practice', validate(submitPracticeSchema), async (req: Requ
 // ─── POST /api/mission/busy-day ───────────────────────────────────────────────
 
 router.post('/busy-day', async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const result = await busyDay(userId);
@@ -114,8 +100,7 @@ router.post('/busy-day', async (req: Request, res: Response): Promise<void> => {
 // ─── POST /api/mission/skip-day ───────────────────────────────────────────────
 
 router.post('/skip-day', async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const result = await skipDay(userId);
@@ -129,8 +114,7 @@ router.post('/skip-day', async (req: Request, res: Response): Promise<void> => {
 // ─── POST /api/mission/stuck ──────────────────────────────────────────────────
 
 router.post('/stuck', validate(stuckSchema), async (req: Request, res: Response): Promise<void> => {
-    const userId = requireUser(req, res);
-    if (!userId) return;
+    const userId = req.userId;
 
     try {
         const { plan_id, day_number, problem, topic } = req.body as {

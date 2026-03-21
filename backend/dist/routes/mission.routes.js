@@ -1,16 +1,110 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const xp_service_1 = require("../services/xp.service");
+const badge_service_1 = require("../services/badge.service");
+const heatmap_service_1 = require("../services/heatmap.service");
+const room_service_1 = require("../services/room.service");
+const supabase_1 = require("../lib/supabase");
 const router = (0, express_1.Router)();
+const xpService = new xp_service_1.XpService();
+const badgeService = new badge_service_1.BadgeService();
+const heatmapService = new heatmap_service_1.HeatmapService();
+const roomService = new room_service_1.RoomService();
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════
 /**
- * Extract userId from x-user-id header
+ * Check if all 3 tasks are complete for today by examining XP events
+ */
+async function checkPerfectDay(userId, planId, date) {
+    const dateStart = new Date(date);
+    dateStart.setHours(0, 0, 0, 0);
+    const dateEnd = new Date(dateStart.getTime() + 24 * 60 * 60 * 1000);
+    const { data: xpEvents } = await supabase_1.supabaseAdmin
+        .from('xp_events')
+        .select('reason')
+        .eq('user_id', userId)
+        .gte('created_at', dateStart.toISOString())
+        .lt('created_at', dateEnd.toISOString());
+    const reasons = (xpEvents || []).map((e) => e.reason);
+    // Perfect day = both task_complete AND practice_solved on same day
+    const hasTask = reasons.includes('task_complete');
+    const hasPractice = reasons.includes('practice_solved');
+    return hasTask && hasPractice;
+}
+/**
+ * Update streak and detect milestone
+ */
+async function updateStreak(userId) {
+    const prefs = await supabase_1.supabaseAdmin
+        .from('user_preferences')
+        .select('streak_count, longest_streak, last_active_date, freeze_last_used, freeze_count')
+        .eq('user_id', userId)
+        .single();
+    if (!prefs.data) {
+        return { newStreak: 1, isMilestone: false };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const lastActive = prefs.data.last_active_date;
+    const currentStreak = prefs.data.streak_count || 0;
+    const longestStreak = prefs.data.longest_streak || 0;
+    const freezeLastUsed = prefs.data.freeze_last_used;
+    const freezeCount = prefs.data.freeze_count || 1;
+    let newStreak = currentStreak;
+    let freezeNewCount = freezeCount;
+    // Check if active today already
+    if (lastActive === today) {
+        return { newStreak, isMilestone: false };
+    }
+    // Determine streak change
+    if (lastActive) {
+        const lastDate = new Date(lastActive);
+        const todayDate = new Date(today);
+        const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+            // Yesterday → increment streak
+            newStreak = currentStreak + 1;
+        }
+        else if (diffDays > 1) {
+            // Gap detected → reset streak
+            newStreak = 1;
+        }
+    }
+    else {
+        // No prior activity → start at 1
+        newStreak = 1;
+    }
+    // Check freeze recharge (7 days since last use)
+    if (freezeLastUsed && freezeCount === 0) {
+        const lastUsedDate = new Date(freezeLastUsed);
+        const todayDate = new Date(today);
+        const daysSinceUse = Math.floor((todayDate.getTime() - lastUsedDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSinceUse >= 7) {
+            freezeNewCount = 1;
+        }
+    }
+    // Update longest_streak if needed
+    const newLongest = Math.max(longestStreak, newStreak);
+    // Save updates
+    await supabase_1.supabaseAdmin
+        .from('user_preferences')
+        .update({
+        streak_count: newStreak,
+        longest_streak: newLongest,
+        last_active_date: today,
+        freeze_count: freezeNewCount,
+    })
+        .eq('user_id', userId);
+    // Check if milestone (7/30/100)
+    const isMilestone = [7, 30, 100].includes(newStreak);
+    return { newStreak, isMilestone };
+}
+/**
+ * Extract userId from Clerk auth middleware
  */
 function extractUserId(req) {
-    const userId = req.headers['x-user-id'];
-    if (typeof userId !== 'string') {
-        return null;
-    }
-    return userId.trim() || null;
+    return req.userId;
 }
 /**
  * Send error response
@@ -37,7 +131,7 @@ function sendSuccess(res, statusCode, data) {
 router.get('/today', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
         // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
@@ -55,15 +149,15 @@ router.get('/today', async (req, res) => {
 });
 /**
  * POST /api/mission/complete-task
- * Mark task 1 or 2 complete for today
+ * Mark task 1 or 2 complete for today with full gamification wiring
  */
 router.post('/complete-task', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
-        const { task_num, day_number } = req.body;
+        const { task_num, day_number, room_id } = req.body;
         if (typeof task_num !== 'number' || ![1, 2].includes(task_num)) {
             return sendError(res, 400, 'INVALID_TASK', 'task_num must be 1 or 2');
         }
@@ -73,7 +167,223 @@ router.post('/complete-task', async (req, res) => {
         // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
         const { completeTask } = require('../../services/mission');
         const result = await completeTask(userId, task_num, day_number);
-        return sendSuccess(res, 200, result);
+        // ─── FIX 2: Streak integrity ──────────────────────────────────────────
+        const { newStreak, isMilestone } = await updateStreak(userId);
+        const streakBonus = isMilestone ? 50 : 0;
+        // ─── FIX 3: XP awards ─────────────────────────────────────────────────
+        let totalXpAwarded = 20;
+        let levelUpEvent = await xpService.awardXp({
+            userId,
+            amount: 20,
+            reason: 'task_complete',
+            taskId: `day_${day_number}_task_${task_num}`,
+        });
+        // Streak milestone bonus
+        if (isMilestone && streakBonus > 0) {
+            totalXpAwarded += streakBonus;
+            const milestoneLevel = await xpService.awardXp({
+                userId,
+                amount: streakBonus,
+                reason: 'streak_milestone',
+            });
+            if (milestoneLevel && !levelUpEvent) {
+                levelUpEvent = milestoneLevel;
+            }
+        }
+        // Streak daily bonus
+        const dailyStreakBonus = await xpService.awardXp({
+            userId,
+            amount: 10,
+            reason: 'streak_bonus',
+        });
+        totalXpAwarded += 10;
+        if (dailyStreakBonus && !levelUpEvent) {
+            levelUpEvent = dailyStreakBonus;
+        }
+        // ─── FIX 5: Contribution events ────────────────────────────────────────
+        await heatmapService.logContributionEvent({
+            userId,
+            eventType: 'solo_task',
+            delta: 1.0,
+        });
+        // Check for perfect day
+        const planData = await supabase_1.supabaseAdmin
+            .from('daily_plans')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .order('generated_at', { ascending: false })
+            .limit(1)
+            .single();
+        let isPerfectDay = false;
+        if (planData.data) {
+            isPerfectDay = await checkPerfectDay(userId, planData.data.id, new Date().toISOString().slice(0, 10));
+            if (isPerfectDay) {
+                await heatmapService.logContributionEvent({
+                    userId,
+                    eventType: 'perfect_day',
+                    delta: 0,
+                });
+                // Full day complete bonus XP
+                const fullDayXp = await xpService.awardXp({
+                    userId,
+                    amount: 25,
+                    reason: 'full_day_complete',
+                });
+                totalXpAwarded += 25;
+                if (fullDayXp && !levelUpEvent) {
+                    levelUpEvent = fullDayXp;
+                }
+            }
+        }
+        // ─── FIX 6: Badge triggers ────────────────────────────────────────────
+        const awardedBadges = [];
+        // First task badge
+        const { data: firstTaskData } = await supabase_1.supabaseAdmin
+            .from('xp_events')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('reason', 'task_complete')
+            .maybeSingle();
+        if (!firstTaskData) {
+            const badge = await badgeService.checkAndAwardActionBadges(userId, { event: 'first_task' });
+            awardedBadges.push(...badge);
+        }
+        // ─── FIX 4: Level-up detection ────────────────────────────────────────
+        if (levelUpEvent) {
+            await heatmapService.logContributionEvent({
+                userId,
+                eventType: 'level_up',
+                delta: 0,
+            });
+        }
+        // ─── FIX 5: Room leaderboard ──────────────────────────────────────────
+        if (room_id && typeof room_id === 'string') {
+            const today = new Date().toISOString().slice(0, 10);
+            // Get current tasks done count
+            const { data: roomLog } = await supabase_1.supabaseAdmin
+                .from('room_daily_log')
+                .select('tasks_done, xp_earned, started_at')
+                .eq('room_id', room_id)
+                .eq('user_id', userId)
+                .eq('date', today)
+                .maybeSingle();
+            const currentTasksDone = (roomLog?.tasks_done || 0) + 1;
+            const currentXpEarned = (roomLog?.xp_earned || 0) + totalXpAwarded;
+            const startedAt = roomLog?.started_at || new Date().toISOString();
+            // Upsert room daily log
+            await supabase_1.supabaseAdmin
+                .from('room_daily_log')
+                .upsert({
+                room_id,
+                user_id: userId,
+                date: today,
+                tasks_done: currentTasksDone,
+                xp_earned: currentXpEarned,
+                started_at: startedAt,
+            }, { onConflict: 'room_id,user_id,date' });
+            // Insert room event
+            await supabase_1.supabaseAdmin.from('room_events').insert({
+                room_id,
+                user_id: userId,
+                event_type: 'task_complete',
+                metadata: { task_num, xp_awarded: totalXpAwarded },
+            });
+            // Check first finish bonus
+            if (currentTasksDone === 3) {
+                const { data: existingPosition } = await supabase_1.supabaseAdmin
+                    .from('room_daily_log')
+                    .select('finish_position')
+                    .eq('room_id', room_id)
+                    .eq('date', today)
+                    .not('finish_position', 'is', null)
+                    .limit(1)
+                    .maybeSingle();
+                if (!existingPosition) {
+                    // This user is first to finish
+                    await supabase_1.supabaseAdmin
+                        .from('room_daily_log')
+                        .update({ finish_position: 1 })
+                        .eq('room_id', room_id)
+                        .eq('user_id', userId)
+                        .eq('date', today);
+                    const firstFinishXp = await xpService.awardXp({
+                        userId,
+                        amount: 25,
+                        reason: 'room_first_finish',
+                        roomId: room_id,
+                    });
+                    totalXpAwarded += 25;
+                    if (firstFinishXp && !levelUpEvent) {
+                        levelUpEvent = firstFinishXp;
+                    }
+                    await supabase_1.supabaseAdmin.from('room_events').insert({
+                        room_id,
+                        user_id: userId,
+                        event_type: 'first_finish',
+                        metadata: { xp_awarded: 25 },
+                    });
+                    // Check if all members finished
+                    const { data: roomMembers } = await supabase_1.supabaseAdmin
+                        .from('room_members')
+                        .select('user_id')
+                        .eq('room_id', room_id);
+                    const memberCount = roomMembers?.length || 0;
+                    const { data: completedToday } = await supabase_1.supabaseAdmin
+                        .from('room_daily_log')
+                        .select('user_id')
+                        .eq('room_id', room_id)
+                        .eq('date', today)
+                        .eq('tasks_done', 3);
+                    const completedCount = completedToday?.length || 0;
+                    if (memberCount > 0 && memberCount === completedCount) {
+                        // Check if already fired
+                        const { data: alreadyFired } = await supabase_1.supabaseAdmin
+                            .from('room_events')
+                            .select('id')
+                            .eq('room_id', room_id)
+                            .eq('event_type', 'room_all_complete')
+                            .eq('date', today)
+                            .maybeSingle();
+                        if (!alreadyFired) {
+                            // Award +20 XP to all members
+                            if (roomMembers) {
+                                for (const member of roomMembers) {
+                                    await xpService.awardXp({
+                                        userId: member.user_id,
+                                        amount: 20,
+                                        reason: 'room_all_complete',
+                                        roomId: room_id,
+                                    });
+                                }
+                            }
+                            await supabase_1.supabaseAdmin.from('room_events').insert({
+                                room_id,
+                                user_id: userId,
+                                event_type: 'room_all_complete',
+                                metadata: { xp_awarded: 20 },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        // Build response
+        const newXpProfile = await xpService.getUserXpProfile(userId);
+        return sendSuccess(res, 200, {
+            success: true,
+            data: {
+                tasksCompleted: 1,
+                xpAwarded: totalXpAwarded,
+                newTotalXp: newXpProfile.totalXp,
+                newLevel: newXpProfile.level,
+                levelUp: levelUpEvent || null,
+                badgesAwarded: awardedBadges,
+                streakCount: newStreak,
+                isPerfectDay,
+                ...result,
+            },
+        });
     }
     catch (error) {
         console.error('complete-task error:', error);
@@ -82,15 +392,15 @@ router.post('/complete-task', async (req, res) => {
 });
 /**
  * POST /api/mission/submit-practice
- * Submit code solution to practice problem
+ * Submit code solution with full gamification wiring
  */
 router.post('/submit-practice', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
-        const { plan_id, day_number, passed, submitted_code, error_type, hint_used, } = req.body;
+        const { plan_id, day_number, passed, submitted_code, error_type, hint_used, room_id, } = req.body;
         if (typeof plan_id !== 'string') {
             return sendError(res, 400, 'INVALID_PLAN', 'plan_id must be a string');
         }
@@ -103,7 +413,138 @@ router.post('/submit-practice', async (req, res) => {
         // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
         const { submitPractice } = require('../../services/mission');
         const result = await submitPractice(userId, plan_id, day_number, passed, submitted_code, error_type, hint_used);
-        return sendSuccess(res, 200, result);
+        let totalXpAwarded = 0;
+        let levelUpEvent = null;
+        const awardedBadges = [];
+        if (passed) {
+            // ─── FIX 3: XP awards for practice ─────────────────────────────────
+            totalXpAwarded = 30;
+            levelUpEvent = await xpService.awardXp({
+                userId,
+                amount: 30,
+                reason: 'practice_solved',
+                taskId: `day_${day_number}_practice`,
+            });
+            // No hint bonus
+            const hintBoolean = typeof hint_used === 'boolean' ? hint_used : false;
+            if (!hintBoolean) {
+                totalXpAwarded += 15;
+                const noHintXp = await xpService.awardXp({
+                    userId,
+                    amount: 15,
+                    reason: 'no_hint_bonus',
+                });
+                if (noHintXp && !levelUpEvent) {
+                    levelUpEvent = noHintXp;
+                }
+                const noHintBadge = await badgeService.checkAndAwardActionBadges(userId, {
+                    event: 'solve_no_hint',
+                });
+                awardedBadges.push(...noHintBadge);
+            }
+            // ─── FIX 5: Contribution events ────────────────────────────────────
+            await heatmapService.logContributionEvent({
+                userId,
+                eventType: 'practice_solved',
+                delta: 1.0,
+            });
+            // ─── FIX 6: Badge triggers ────────────────────────────────────────
+            // First practice solved
+            const { data: firstPracticeData } = await supabase_1.supabaseAdmin
+                .from('practice_attempts')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('passed', true)
+                .maybeSingle();
+            if (!firstPracticeData) {
+                const badge = await badgeService.checkAndAwardActionBadges(userId, {
+                    event: 'first_practice_solved',
+                });
+                awardedBadges.push(...badge);
+            }
+            // Practice count milestone check
+            const { count: practiceCount } = await supabase_1.supabaseAdmin
+                .from('practice_attempts')
+                .select('id', { count: 'exact' })
+                .eq('user_id', userId)
+                .eq('passed', true);
+            if (practiceCount !== null) {
+                const badge = await badgeService.checkAndAwardActionBadges(userId, {
+                    event: 'practice_count',
+                    count: practiceCount,
+                });
+                awardedBadges.push(...badge);
+            }
+            // ─── FIX 4: Level-up detection ────────────────────────────────────
+            if (levelUpEvent) {
+                await heatmapService.logContributionEvent({
+                    userId,
+                    eventType: 'level_up',
+                    delta: 0,
+                });
+            }
+            // ─── FIX 7: Perfect day detection ──────────────────────────────────
+            const planData = await supabase_1.supabaseAdmin
+                .from('daily_plans')
+                .select('id')
+                .eq('id', plan_id)
+                .eq('user_id', userId)
+                .single();
+            let isPerfectDay = false;
+            if (planData.data) {
+                isPerfectDay = await checkPerfectDay(userId, plan_id, new Date().toISOString().slice(0, 10));
+                if (isPerfectDay) {
+                    await heatmapService.logContributionEvent({
+                        userId,
+                        eventType: 'perfect_day',
+                        delta: 0,
+                    });
+                }
+            }
+            // ─── FIX 5: Room daily log if in room ──────────────────────────────
+            if (room_id && typeof room_id === 'string') {
+                const today = new Date().toISOString().slice(0, 10);
+                const { data: roomLog } = await supabase_1.supabaseAdmin
+                    .from('room_daily_log')
+                    .select('tasks_done, xp_earned, started_at')
+                    .eq('room_id', room_id)
+                    .eq('user_id', userId)
+                    .eq('date', today)
+                    .maybeSingle();
+                const currentTasksDone = (roomLog?.tasks_done || 0) + 1;
+                const currentXpEarned = (roomLog?.xp_earned || 0) + totalXpAwarded;
+                const startedAt = roomLog?.started_at || new Date().toISOString();
+                await supabase_1.supabaseAdmin
+                    .from('room_daily_log')
+                    .upsert({
+                    room_id,
+                    user_id: userId,
+                    date: today,
+                    tasks_done: currentTasksDone,
+                    xp_earned: currentXpEarned,
+                    started_at: startedAt,
+                }, { onConflict: 'room_id,user_id,date' });
+                await supabase_1.supabaseAdmin.from('room_events').insert({
+                    room_id,
+                    user_id: userId,
+                    event_type: 'practice_solved',
+                    metadata: { xp_awarded: totalXpAwarded },
+                });
+            }
+        }
+        // Build response
+        const newXpProfile = await xpService.getUserXpProfile(userId);
+        return sendSuccess(res, 200, {
+            success: true,
+            data: {
+                xpAwarded: totalXpAwarded,
+                newTotalXp: newXpProfile.totalXp,
+                newLevel: newXpProfile.level,
+                levelUp: levelUpEvent || null,
+                badgesAwarded: awardedBadges,
+                ...result,
+            },
+        });
     }
     catch (error) {
         console.error('submit-practice error:', error);
@@ -112,18 +553,61 @@ router.post('/submit-practice', async (req, res) => {
 });
 /**
  * POST /api/mission/busy-day
- * Register a busy day (uses 1 freeze)
+ * Register a busy day (uses 1 freeze, awards partial XP)
  */
 router.post('/busy-day', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
+        // ─── FIX 2: Freeze guard ──────────────────────────────────────────────
+        const prefs = await supabase_1.supabaseAdmin
+            .from('user_preferences')
+            .select('freeze_count')
+            .eq('user_id', userId)
+            .single();
+        if (!prefs.data || prefs.data.freeze_count === 0) {
+            return sendError(res, 400, 'NO_FREEZE_AVAILABLE', 'No streak freeze available. Complete a task to protect your streak.');
+        }
         // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
         const { busyDay } = require('../../services/mission');
         const result = await busyDay(userId);
-        return sendSuccess(res, 200, result);
+        // Update freeze and streak
+        const { newStreak } = await updateStreak(userId);
+        await supabase_1.supabaseAdmin
+            .from('user_preferences')
+            .update({
+            freeze_count: 0,
+            freeze_last_used: new Date().toISOString().slice(0, 10),
+        })
+            .eq('user_id', userId);
+        // ─── FIX 3: XP award ──────────────────────────────────────────────────
+        const xpAwarded = 5;
+        const levelUpEvent = await xpService.awardXp({
+            userId,
+            amount: xpAwarded,
+            reason: 'busy_day_task',
+        });
+        // ─── FIX 5: Contribution event ─────────────────────────────────────────
+        await heatmapService.logContributionEvent({
+            userId,
+            eventType: 'solo_task',
+            delta: 0.5,
+        });
+        const newXpProfile = await xpService.getUserXpProfile(userId);
+        return sendSuccess(res, 200, {
+            success: true,
+            data: {
+                xpAwarded,
+                newTotalXp: newXpProfile.totalXp,
+                newLevel: newXpProfile.level,
+                levelUp: levelUpEvent || null,
+                streakCount: newStreak,
+                freezeUsed: true,
+                ...result,
+            },
+        });
     }
     catch (error) {
         console.error('busy-day error:', error);
@@ -137,13 +621,36 @@ router.post('/busy-day', async (req, res) => {
 router.post('/skip-day', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
+        // ─── FIX 2: Freeze guard ──────────────────────────────────────────────
+        const prefs = await supabase_1.supabaseAdmin
+            .from('user_preferences')
+            .select('freeze_count')
+            .eq('user_id', userId)
+            .single();
+        if (!prefs.data || prefs.data.freeze_count === 0) {
+            return sendError(res, 400, 'NO_FREEZE_AVAILABLE', 'No streak freeze available. Complete a task to protect your streak.');
+        }
         // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
         const { skipDay } = require('../../services/mission');
         const result = await skipDay(userId);
-        return sendSuccess(res, 200, result);
+        // Update freeze
+        await supabase_1.supabaseAdmin
+            .from('user_preferences')
+            .update({
+            freeze_count: 0,
+            freeze_last_used: new Date().toISOString().slice(0, 10),
+        })
+            .eq('user_id', userId);
+        return sendSuccess(res, 200, {
+            success: true,
+            data: {
+                freezeUsed: true,
+                ...result,
+            },
+        });
     }
     catch (error) {
         console.error('skip-day error:', error);
@@ -157,7 +664,7 @@ router.post('/skip-day', async (req, res) => {
 router.post('/stuck', async (req, res) => {
     const userId = extractUserId(req);
     if (!userId) {
-        return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
     try {
         const { plan_id, day_number, problem, topic } = req.body;

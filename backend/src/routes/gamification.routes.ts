@@ -21,9 +21,6 @@ const router = Router();
 const xpService = new XpService();
 const badgeService = new BadgeService();
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /**
  * Generic error response helper
  */
@@ -50,22 +47,10 @@ function sendSuccess<T>(res: Response, statusCode: number, data: T): Response<Ap
 }
 
 /**
- * Validate and extract userId from x-user-id header
+ * Extract userId from Clerk auth middleware
  */
 function extractUserId(req: Request): string | null {
-  const userId = req.headers['x-user-id'];
-  if (typeof userId !== 'string') {
-    return null;
-  }
-  const trimmed = userId.trim();
-  if (!UUID_REGEX.test(trimmed)) {
-    return null;
-  }
-  return trimmed;
-}
-
-function isValidUUID(value: string): boolean {
-  return UUID_REGEX.test(value);
+  return req.userId;
 }
 
 /**
@@ -76,7 +61,7 @@ router.get('/me/xp', async (req: Request, res: Response): Promise<Response> => {
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -122,7 +107,7 @@ router.get('/me/streak', async (req: Request, res: Response): Promise<Response> 
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -142,7 +127,7 @@ router.get('/me/badges', async (req: Request, res: Response): Promise<Response> 
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -164,7 +149,7 @@ router.get(
     const userId = extractUserId(req);
 
     if (!userId) {
-      return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+      return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
     }
 
     try {
@@ -208,11 +193,11 @@ router.get(
 );
 
 router.patch('/me/gamification-toggle', async (req: Request, res: Response): Promise<Response> => {
-  const userId = req.headers['x-user-id'] as string;
-  if (!isValidUUID(userId)) {
+  const userId = req.userId;
+  if (!userId) {
     return res.status(400).json({
       success: false,
-      error: { code: 'INVALID_UUID', message: 'Invalid user ID' },
+      error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
     });
   }
 

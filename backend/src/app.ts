@@ -1,12 +1,14 @@
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 
+import { clerkAuth, requireAuth } from './middleware/requireAuth';
 import onboardingRoutes from './routes/onboarding.routes';
 import missionRoutes from './routes/missions.routes';
 import meRoutes from './routes/me.routes';
 import heatmapRoutes from './routes/heatmap.routes';
 import roomRoutes from './routes/room.routes';
 import gamificationRoutes from './routes/gamification.routes';
+import authRoutes from './routes/auth.routes';
 
 const app = express();
 
@@ -23,11 +25,14 @@ app.use(
   })
 );
 app.use(express.json());
+app.use(clerkAuth);
 
 app.get('/health', (_req: Request, res: Response) => {
   return res.status(200).json({ status: 'ok' });
 });
 
+app.use('/api', requireAuth);
+app.use('/api/auth', authRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/mission', missionRoutes);
 app.use('/api/me', meRoutes);
