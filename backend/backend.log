@@ -1,0 +1,58 @@
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+DevPath backend listening on port 8000
+[AUTH/SYNC] Starting sync for user: user_3BF7dc5DcTcm8DIS6cn6SwDArJn
+[AUTH/SYNC] Clerk user fetched successfully: user_3BF7dc5DcTcm8DIS6cn6SwDArJn
+[AUTH/SYNC] Upserting user to Supabase: {
+  userId: 'user_3BF7dc5DcTcm8DIS6cn6SwDArJn',
+  email: 'ghoramisudipta32@gmail.com',
+  displayName: 'Sudipta Ghorami'
+}
+[AUTH/SYNC] Supabase upsert error: {
+  code: '22P02',
+  details: null,
+  hint: null,
+  message: 'invalid input syntax for type uuid: "user_3BF7dc5DcTcm8DIS6cn6SwDArJn"'
+}
+[AUTH/SYNC] Unhandled error: Supabase upsert error: {"code":"22P02","details":null,"hint":null,"message":"invalid input syntax for type uuid: \"user_3BF7dc5DcTcm8DIS6cn6SwDArJn\""}
+[AUTH/SYNC] Full error stack: Error: Supabase upsert error: {"code":"22P02","details":null,"hint":null,"message":"invalid input syntax for type uuid: \"user_3BF7dc5DcTcm8DIS6cn6SwDArJn\""}
+    at /home/sudipta/D_drive/all-projects-main/DevPathV1/backend/src/routes/auth.routes.ts:52:13
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+[AUTH/SYNC] Starting sync for user: user_3BF7dc5DcTcm8DIS6cn6SwDArJn
+[AUTH/SYNC] Clerk user fetched successfully: user_3BF7dc5DcTcm8DIS6cn6SwDArJn
+[AUTH/SYNC] Upserting user to Supabase: {
+  userId: 'user_3BF7dc5DcTcm8DIS6cn6SwDArJn',
+  email: 'ghoramisudipta32@gmail.com',
+  displayName: 'Sudipta Ghorami'
+}
+[AUTH/SYNC] Supabase upsert error: {
+  code: '22P02',
+  details: null,
+  hint: null,
+  message: 'invalid input syntax for type uuid: "user_3BF7dc5DcTcm8DIS6cn6SwDArJn"'
+}
+[AUTH/SYNC] Unhandled error: Supabase upsert error: {"code":"22P02","details":null,"hint":null,"message":"invalid input syntax for type uuid: \"user_3BF7dc5DcTcm8DIS6cn6SwDArJn\""}
+[AUTH/SYNC] Full error stack: Error: Supabase upsert error: {"code":"22P02","details":null,"hint":null,"message":"invalid input syntax for type uuid: \"user_3BF7dc5DcTcm8DIS6cn6SwDArJn\""}
+    at /home/sudipta/D_drive/all-projects-main/DevPathV1/backend/src/routes/auth.routes.ts:52:13
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+DevPath backend listening on port 8000
+[32m[nodemon] clean exit - waiting for changes before restart[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+DevPath backend listening on port 8000
+[32m[nodemon] clean exit - waiting for changes before restart[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `npx ts-node src/server.ts`[39m
+DevPath backend listening on port 8000
+[32m[nodemon] clean exit - waiting for changes before restart[39m

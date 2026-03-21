@@ -5,19 +5,26 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const cors_1 = __importDefault(require("cors"));
 const express_1 = __importDefault(require("express"));
+const requireAuth_1 = require("./middleware/requireAuth");
 const onboarding_routes_1 = __importDefault(require("./routes/onboarding.routes"));
-const mission_routes_1 = __importDefault(require("./routes/mission.routes"));
+const missions_routes_1 = __importDefault(require("./routes/missions.routes"));
+const me_routes_1 = __importDefault(require("./routes/me.routes"));
 const heatmap_routes_1 = __importDefault(require("./routes/heatmap.routes"));
 const room_routes_1 = __importDefault(require("./routes/room.routes"));
 const gamification_routes_1 = __importDefault(require("./routes/gamification.routes"));
+const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
+app.use(requireAuth_1.clerkAuth);
 app.get('/health', (_req, res) => {
     return res.status(200).json({ status: 'ok' });
 });
+app.use('/api', requireAuth_1.requireAuth);
+app.use('/api/auth', auth_routes_1.default);
 app.use('/api/onboarding', onboarding_routes_1.default);
-app.use('/api/mission', mission_routes_1.default);
+app.use('/api/mission', missions_routes_1.default);
+app.use('/api/me', me_routes_1.default);
 app.use('/api/heatmap', heatmap_routes_1.default);
 app.use('/api/rooms', room_routes_1.default);
 app.use('/api', gamification_routes_1.default);

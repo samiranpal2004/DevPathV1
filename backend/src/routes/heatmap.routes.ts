@@ -4,9 +4,6 @@ import { AppError, heatmapService } from '../services/heatmap.service';
 
 const router = Router();
 
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 router.get('/:userId', async (req: Request, res: Response): Promise<Response> => {
   const userId = String(req.params.userId ?? '').trim();
 
@@ -14,13 +11,6 @@ router.get('/:userId', async (req: Request, res: Response): Promise<Response> =>
     return res.status(400).json({
       error: 'BadRequest',
       message: 'userId is required.',
-    });
-  }
-
-  if (!UUID_V4_REGEX.test(userId)) {
-    return res.status(400).json({
-      error: 'BadRequest',
-      message: 'userId must be a valid UUID.',
     });
   }
 

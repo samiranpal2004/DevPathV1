@@ -1,48 +1,21 @@
-import Link from "next/link";
+"use client";
+
+import { useUser } from "@clerk/nextjs";
+
+import { Navbar } from "@/components/Navbar";
 
 export default function Dashboard() {
+  const { user } = useUser();
+
   return (
     <>
-      {/* Top Navigation Bar */}
-      <nav className="fixed top-0 w-full z-50 bg-[#fafaf5]/70 backdrop-blur-xl shadow-[0_20px_50px_rgba(63,72,73,0.06)]">
-        <div className="flex justify-between items-center px-8 h-16 w-full max-w-[1440px] mx-auto relative">
-          <div className="flex items-center gap-8">
-            <span className="text-xl font-black text-primary font-headline tracking-tight">DevPath</span>
-            <div className="hidden md:flex gap-6 items-center">
-              <Link className="font-headline font-bold tracking-tight text-primary border-b-2 border-primary pb-1" href="/dashboard">Dashboard</Link>
-              <Link className="font-headline font-bold tracking-tight text-on-surface-variant hover:text-primary transition-all duration-300" href="/room">Rooms</Link>
-              <Link className="font-headline font-bold tracking-tight text-on-surface-variant hover:text-primary transition-all duration-300" href="#">Heatmap</Link>
-            </div>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 px-4 py-1.5 bg-tertiary-fixed/30 rounded-full">
-              <span className="material-symbols-outlined text-tertiary" style={{fontVariationSettings: "'FILL' 1"}}>bolt</span>
-              <span className="font-headline font-bold text-sm text-on-tertiary-fixed-variant">Streak: 12 🔥</span>
-            </div>
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-xs font-bold text-primary">2,450 XP</span>
-              <div className="w-24 h-1.5 bg-surface-container rounded-full mt-1 overflow-hidden">
-                <div className="w-3/4 h-full bg-primary-container"></div>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button className="p-2 rounded-full hover:bg-surface-container-low transition-all active:scale-95">
-                <span className="material-symbols-outlined text-on-surface-variant">notifications</span>
-              </button>
-              <div className="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant/20">
-                <img alt="User profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC9lE7zkg2rZu1pm3xzgniZk1IkNl18pvccYJgcrhrA2h8M2zhVc1tqPghsVkVWRQ2d4jeGK1MPopgx7-lUIVgi4T30CJn6ZWxXHRfdoBuGIHVsI42X6Hd0_N8-SFIjWfIqK0nBX_j_7Tr80Hxt8gXAT_gP3qoSKPSuXpf-_Cpto5pAyx7bQ2OWwdRf2PBBWp73Lc0aZvSPEwKYcQ6tfldn8DbvfLfg4afmDb3VRaE5I44GvqkvrjgnGwctlCO7gLY-s7ZD3VtZXgEP"/>
-              </div>
-            </div>
-          </div>
-          <div className="bg-surface-container h-[1px] w-full absolute bottom-0 opacity-20"></div>
-        </div>
-      </nav>
+      <Navbar />
       
       <main className="pt-32 pb-24 px-8 max-w-[1200px] mx-auto">
         {/* Greeting Section */}
         <header className="mb-12 relative">
           <div className="absolute -top-12 -left-12 w-64 h-64 bg-primary-container/5 blur-[100px] rounded-full pointer-events-none"></div>
-          <h1 className="text-5xl font-extrabold text-on-background tracking-tight mb-2">Good morning, Alex.</h1>
+          <h1 className="text-5xl font-extrabold text-on-background tracking-tight mb-2">Good morning, {user?.firstName ?? 'Learner'}.</h1>
           <p className="text-lg text-on-surface-variant max-w-xl">Your focus path is ready. Complete today's mission to maintain your 12-day momentum.</p>
         </header>
 

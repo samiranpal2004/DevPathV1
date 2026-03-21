@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv/config");
 const supabase_1 = require("../lib/supabase");
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
+const DEMO_USER_ID = 'user_demo00000000000000001';
 const ROHAN_USER_ID = '00000000-0000-0000-0000-000000000002';
 const PRIYA_USER_ID = '00000000-0000-0000-0000-000000000003';
 const DEMO_ROOM_ID = '00000000-0000-0000-0000-000000000042';

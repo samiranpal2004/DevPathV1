@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.roomService = exports.RoomService = exports.RoomServiceError = void 0;
 const supabase_1 = require("../lib/supabase");
 const roomCode_1 = require("../utils/roomCode");
+const xp_service_1 = require("./xp.service");
 class RoomServiceError extends Error {
     constructor(message, options = {}) {
         super(message);
@@ -14,6 +15,75 @@ class RoomServiceError extends Error {
 }
 exports.RoomServiceError = RoomServiceError;
 class RoomService {
+    constructor() {
+        this.xpService = new xp_service_1.XpService();
+    }
+    // FIX: Added idempotent first-finish marker for room daily race bonuses.
+    async checkAndSetFirstFinish(roomId, userId) {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: existing } = await supabase_1.supabaseAdmin
+            .from('room_daily_log')
+            .select('finish_position')
+            .eq('room_id', roomId)
+            .eq('date', today)
+            .not('finish_position', 'is', null)
+            .limit(1);
+        if (existing && existing.length > 0)
+            return false;
+        await supabase_1.supabaseAdmin
+            .from('room_daily_log')
+            .update({
+            finish_position: 1,
+            completed_at: new Date().toISOString(),
+        })
+            .eq('room_id', roomId)
+            .eq('user_id', userId)
+            .eq('date', today);
+        return true;
+    }
+    // FIX: Added idempotent all-members-complete room XP award flow.
+    async checkAndAwardAllComplete(roomId) {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: alreadyFired } = await supabase_1.supabaseAdmin
+            .from('room_events')
+            .select('id')
+            .eq('room_id', roomId)
+            .eq('event_type', 'room_all_complete')
+            .gte('created_at', `${today}T00:00:00.000Z`)
+            .limit(1);
+        if (alreadyFired && alreadyFired.length > 0)
+            return;
+        const { count: memberCount } = await supabase_1.supabaseAdmin
+            .from('room_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('room_id', roomId);
+        const { count: completedCount } = await supabase_1.supabaseAdmin
+            .from('room_daily_log')
+            .select('*', { count: 'exact', head: true })
+            .eq('room_id', roomId)
+            .eq('date', today)
+            .eq('tasks_done', 3);
+        if (!memberCount || completedCount !== memberCount)
+            return;
+        const { data: members } = await supabase_1.supabaseAdmin
+            .from('room_members')
+            .select('user_id')
+            .eq('room_id', roomId);
+        if (!members)
+            return;
+        await Promise.all(members.map((member) => this.xpService.awardXp({
+            userId: member.user_id,
+            amount: 20,
+            reason: 'room_all_complete',
+            roomId,
+        })));
+        await supabase_1.supabaseAdmin.from('room_events').insert({
+            room_id: roomId,
+            user_id: null,
+            event_type: 'room_all_complete',
+            metadata: { xp_awarded_each: 20, member_count: memberCount },
+        });
+    }
     /**
      * Creates a new room, marks it active, and adds the owner as the first member.
      */

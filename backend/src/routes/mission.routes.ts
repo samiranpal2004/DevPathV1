@@ -131,14 +131,10 @@ interface ApiSuccessBody<T> {
 }
 
 /**
- * Extract userId from x-user-id header
+ * Extract userId from Clerk auth middleware
  */
 function extractUserId(req: Request): string | null {
-  const userId = req.headers['x-user-id'];
-  if (typeof userId !== 'string') {
-    return null;
-  }
-  return userId.trim() || null;
+  return req.userId;
 }
 
 /**
@@ -174,7 +170,7 @@ router.get('/today', async (req: Request, res: Response): Promise<Response> => {
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -207,7 +203,7 @@ router.post('/complete-task', async (req: Request, res: Response): Promise<Respo
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -492,7 +488,7 @@ router.post('/submit-practice', async (req: Request, res: Response): Promise<Res
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -710,7 +706,7 @@ router.post('/busy-day', async (req: Request, res: Response): Promise<Response> 
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -784,7 +780,7 @@ router.post('/skip-day', async (req: Request, res: Response): Promise<Response> 
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
@@ -834,7 +830,7 @@ router.post('/stuck', async (req: Request, res: Response): Promise<Response> => 
   const userId = extractUserId(req);
 
   if (!userId) {
-    return sendError(res, 400, 'INVALID_USER_ID', 'Invalid or missing x-user-id header');
+    return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
   try {
