@@ -9,6 +9,7 @@ import heatmapRoutes from './routes/heatmap.routes';
 import roomRoutes from './routes/room.routes';
 import gamificationRoutes from './routes/gamification.routes';
 import leaderboardRoutes from './routes/leaderboard.routes';
+import plansRoutes from './routes/plans.routes';
 import authRoutes from './routes/auth.routes';
 
 const app = express();
@@ -40,6 +41,7 @@ app.use('/api/me', meRoutes);
 app.use('/api/heatmap', heatmapRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/plans', plansRoutes);
 app.use('/api', gamificationRoutes);
 
 app.use((_req: Request, res: Response) => {

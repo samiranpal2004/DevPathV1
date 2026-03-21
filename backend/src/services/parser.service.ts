@@ -68,15 +68,19 @@ async function storePlan(
     sourceType: string,
     parsedPlan: Record<string, unknown> | DefaultPlan,
     skillTier: string,
+    keepExistingPlans = false,
 ): Promise<Record<string, unknown>> {
     const checkpoints = (parsedPlan as { checkpoints?: unknown[] }).checkpoints;
     const totalDays = Array.isArray(checkpoints) ? checkpoints.length : 30;
-    // Deactivate any existing active plan for this user
-    await supabaseAdmin
-        .from('daily_plans')
-        .update({ status: 'paused' })
-        .eq('user_id', userId)
-        .eq('status', 'active');
+
+    if (!keepExistingPlans) {
+        // Deactivate any existing active plan for this user (onboarding flow)
+        await supabaseAdmin
+            .from('daily_plans')
+            .update({ status: 'paused' })
+            .eq('user_id', userId)
+            .eq('status', 'active');
+    }
 
     const { data, error } = await supabaseAdmin
         .from('daily_plans')
@@ -95,6 +99,20 @@ async function storePlan(
 
     if (error) throw new Error(`DB error storing plan: ${error.message}`);
     return data as Record<string, unknown>;
+}
+
+/**
+ * Store a plan generated from the video quiz flow.
+ * Does NOT deactivate existing plans — user keeps all plans.
+ */
+export async function storePlanKeepExisting(
+    userId: string,
+    url: string | null,
+    sourceType: string,
+    parsedPlan: Record<string, unknown>,
+    skillTier: string,
+): Promise<Record<string, unknown>> {
+    return storePlan(userId, url, sourceType, parsedPlan, skillTier, true);
 }
 
 /**
