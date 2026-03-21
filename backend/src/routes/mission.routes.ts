@@ -207,25 +207,25 @@ router.post('/complete-task', async (req: Request, res: Response): Promise<Respo
     return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
   }
 
-  try {
-    const { task_num, day_number, room_id } = req.body as {
-      task_num?: unknown;
-      day_number?: unknown;
-      room_id?: unknown;
-    };
+try {
+  const { task_num, day_number, room_id } = req.body as {
+    task_num?: unknown;
+    day_number?: unknown;
+    room_id?: unknown;
+  };
 
-    if (typeof task_num !== 'number' || ![1, 2].includes(task_num)) {
-      return sendError(res, 400, 'INVALID_TASK', 'task_num must be 1 or 2');
-    }
+  if (typeof task_num !== 'number' || ![1, 2].includes(task_num)) {
+    return sendError(res, 400, 'INVALID_TASK', 'task_num must be 1 or 2');
+  }
 
-    if (typeof day_number !== 'number' || day_number < 1) {
-      return sendError(res, 400, 'INVALID_DAY', 'day_number must be a positive number');
-    }
+  if (typeof day_number !== 'number' || day_number < 1) {
+    return sendError(res, 400, 'INVALID_DAY', 'day_number must be a positive number');
+  }
 
-    // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
-    const { completeTask } = require('../../services/mission');
+  // eslint-disable-next-line global-require,@typescript-eslint/no-var-requires
+  const { completeTask } = require('../../services/mission');
 
-    const result = await completeTask(userId, task_num, day_number);
+  const result = await completeTask(userId, task_num, day_number, room_id);
 
     // ─── FIX 2: Streak integrity ──────────────────────────────────────────
     const { newStreak, isMilestone } = await updateStreak(userId);
