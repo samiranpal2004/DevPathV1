@@ -9,6 +9,7 @@ import {
   activatePlan,
   getPlanProgress,
 } from '@/lib/api/plans';
+import { useActiveRoom } from '@/hooks/useActiveRoom';
 import type {
   VideoAnalysis,
   QuizQuestion,
@@ -82,6 +83,9 @@ export function VideoMission() {
   // Saved plans
   const [savedPlans, setSavedPlans] = useState<PlanWithProgress[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
+
+  // Active room
+  const { activeRoom } = useActiveRoom();
 
   // Task/editor state
   const [completedTasks, setCompletedTasks] = useState<Set<TaskKey>>(new Set());
@@ -696,6 +700,7 @@ export function VideoMission() {
           }
           planId={activePlan.plan_id}
           dayNumber={currentDay}
+          roomId={activeRoom?.id}
           onSuccess={(xp) => handleTaskSuccess(editorOpen, xp)}
           onClose={() => setEditorOpen(null)}
         />
