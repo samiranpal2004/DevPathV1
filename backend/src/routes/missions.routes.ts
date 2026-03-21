@@ -171,12 +171,47 @@ router.post('/evaluate-code', async (req: Request, res: Response): Promise<void>
             const xpAmount = task_key === 'practice' ? 30 : 20;
             xpAwarded = xpAmount;
 
-            // Award XP event
+            // Award XP event — include plan_id in task_id so completions
+            // can be tracked per-plan across page refreshes.
+            const taskIdStr = plan_id && day_number
+                ? `${plan_id}:day_${day_number}_${task_key}`
+                : day_number
+                ? `day_${day_number}_${task_key}`
+                : null;
+
+            // Check idempotency — don't award XP twice for the same task
+            if (taskIdStr) {
+                const { data: existing } = await supabaseAdmin
+                    .from('xp_events')
+                    .select('id')
+                    .eq('user_id', userId)
+                    .eq('task_id', taskIdStr)
+                    .limit(1);
+
+                if (existing && existing.length > 0) {
+                    // Already completed — return success but no new XP
+                    const { data: xpRows } = await supabaseAdmin
+                        .from('xp_events')
+                        .select('amount')
+                        .eq('user_id', userId);
+                    const currentTotalXp = (xpRows ?? []).reduce((sum, r) => sum + (r.amount as number), 0);
+                    res.status(200).json({
+                        data: {
+                            ...evalResult,
+                            xpAwarded: 0,
+                            newTotalXp: currentTotalXp,
+                            already_completed: true,
+                        },
+                    });
+                    return;
+                }
+            }
+
             await supabaseAdmin.from('xp_events').insert({
                 user_id: userId,
                 amount: xpAmount,
                 reason: task_key === 'practice' ? 'practice_solved' : 'task_complete',
-                task_id: day_number ? `day_${day_number}_${task_key}` : null,
+                task_id: taskIdStr,
             });
 
             // Heatmap contribution

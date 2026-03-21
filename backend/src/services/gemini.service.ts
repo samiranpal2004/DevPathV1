@@ -279,6 +279,113 @@ function extractJson(text: string): Record<string, unknown> {
     }
 }
 
+export interface VideoAnalysis {
+    topic: string;
+    concepts: string[];
+    difficulty_estimate: string;
+    total_duration_minutes: number;
+    summary: string;
+}
+
+/**
+ * Analyze a YouTube video and generate quiz questions to assess the user's
+ * level on the video's topic.  Returns both the video analysis and questions.
+ *
+ * Step 1 of the new two-step parse flow.
+ */
+export async function analyzeVideoForQuiz(url: string): Promise<{
+    analysis: VideoAnalysis;
+    questions: QuizQuestion[];
+}> {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const prompt = `Watch this YouTube video carefully and do TWO things:
+
+1. Analyse the video content — extract the main topic, key concepts taught, estimated difficulty, total duration.
+2. Generate 3-5 multiple-choice questions that test a learner's EXISTING knowledge of the topic covered in this video. These questions should help judge whether the learner is a beginner, familiar, or intermediate with this topic. Questions should NOT test video-specific content — they should test prerequisite/foundational knowledge of the topic.
+
+Return ONLY valid JSON with this structure:
+{
+  "analysis": {
+    "topic": "string (main topic of the video)",
+    "concepts": ["string (key concepts taught)"],
+    "difficulty_estimate": "beginner|intermediate|advanced",
+    "total_duration_minutes": number,
+    "summary": "string (2-3 sentence summary of what the video teaches)"
+  },
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string", "string", "string", "string"],
+      "correctIndex": number (0-3)
+    }
+  ]
+}
+No explanation. No markdown. Only the JSON object.`;
+
+    const result = await model.generateContent([
+        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
+        { text: prompt },
+    ]);
+    const text = result.response.text().trim();
+    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped) as { analysis: VideoAnalysis; questions: QuizQuestion[] };
+}
+
+/**
+ * Generate a personalised day-wise plan based on the video analysis and the
+ * user's assessed skill level.
+ *
+ * Step 2 of the new two-step parse flow.
+ */
+export async function generatePersonalizedPlan(
+    analysis: VideoAnalysis,
+    skillLevel: string,
+    dailyTimeMinutes: number = 20,
+): Promise<string> {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const prompt = `You are building a personalised coding study plan.
+
+Video topic: "${analysis.topic}"
+Concepts covered: ${JSON.stringify(analysis.concepts)}
+Video duration: ${analysis.total_duration_minutes} minutes
+Video difficulty: ${analysis.difficulty_estimate}
+Video summary: ${analysis.summary}
+
+Learner's assessed skill level for this topic: ${skillLevel}
+Daily time budget: ${dailyTimeMinutes} minutes
+
+RULES for generating the plan:
+- If the learner is "beginner": break down into more days with simpler tasks, more explanation, easier practice problems.
+- If the learner is "familiar": moderate pace, balanced tasks, intermediate practice.
+- If the learner is "intermediate": fewer days, more challenging tasks, advanced practice problems, skip basics.
+- Each day should fit within the ${dailyTimeMinutes}-minute daily budget.
+- Easy topics can be covered in 1-2 days. Hard topics should take more days.
+- Adjust the number of days based on BOTH the topic complexity AND the learner's level.
+- Each day must have exactly: task1, task2, and a practice problem.
+
+Return ONLY valid JSON with this structure:
+{
+  "title": "string",
+  "total_duration_minutes": ${analysis.total_duration_minutes},
+  "checkpoints": [
+    {
+      "day": number,
+      "title": "string",
+      "concepts": ["string"],
+      "task1": { "title": "string", "description": "string", "duration_minutes": number },
+      "task2": { "title": "string", "description": "string", "duration_minutes": number },
+      "practice": { "title": "string", "description": "string", "difficulty": "beginner|intermediate|advanced" }
+    }
+  ]
+}
+No explanation. No markdown. Only the JSON object.`;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+}
+
 /**
  * Detect if an error is a Gemini quota / rate-limit error.
  */
