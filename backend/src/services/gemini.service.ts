@@ -120,6 +120,56 @@ No explanation. No markdown. Only the JSON array.`;
     return JSON.parse(stripped) as QuizQuestion[];
 }
 
+export interface CodeEvalResult {
+    passed: boolean;
+    feedback: string;
+    hints: string[];
+    score: number; // 0-100
+}
+
+/**
+ * Evaluate learner code against a task description using Gemini Flash.
+ * Returns structured feedback without revealing the full solution.
+ */
+export async function evaluateCode(
+    code: string,
+    language: string,
+    taskTitle: string,
+    taskDescription: string,
+): Promise<CodeEvalResult> {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const prompt = `You are a coding instructor evaluating a student's code submission.
+
+Task title: "${taskTitle}"
+Task description: "${taskDescription}"
+Language: ${language}
+
+Student's code:
+\`\`\`${language}
+${code}
+\`\`\`
+
+Evaluate the code and return ONLY valid JSON with this structure:
+{
+  "passed": boolean,
+  "score": number (0-100, how well it addresses the task),
+  "feedback": "string (1-2 sentence overall verdict — be encouraging)",
+  "hints": ["string", "string"] (1-3 specific, actionable hints if score < 80, empty array if passed well)
+}
+
+Rules:
+- passed = true if score >= 70
+- Do NOT reveal the full solution
+- Be encouraging even when failing
+- hints should address specific issues in their code
+No explanation. No markdown. Only the JSON object.`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped) as CodeEvalResult;
+}
+
 /**
  * Get a micro-lesson for a stuck learner using Gemini 1.5 Flash.
  */
