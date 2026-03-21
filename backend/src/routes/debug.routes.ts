@@ -38,8 +38,8 @@ router.get('/debug/gemini-test', async (_req: Request, res: Response) => {
 
   // Test 2 — Pro model
   try {
-    console.log('[Debug] Testing gemini-2.5-pro...');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    console.log('[Debug] Testing gemini-2.5-flash...');
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const start = Date.now();
     const result = await model.generateContent('Reply with just the word: OK');
     const text = result.response.text().trim();

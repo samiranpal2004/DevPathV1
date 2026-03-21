@@ -98,7 +98,7 @@ export async function parseVideoUrlRaw(url: string): Promise<string> {
   console.log('[Gemini:parseVideo] URL:', url);
   console.log('[Gemini:parseVideo] API Key present:', !!process.env.GEMINI_API_KEY);
   console.log('[Gemini:parseVideo] API Key prefix:', apiKeyPrefix());
-  console.log('[Gemini:parseVideo] Model: gemini-2.5-pro');
+  console.log('[Gemini:parseVideo] Model: gemini-2.5-flash');
   console.log('───────────────────────────────────');
 
   // Step 1 — Extract video ID from URL
@@ -179,7 +179,7 @@ ${VIDEO_PARSER_PROMPT_TEXT}`;
   // Step 4 — Call Gemini with text prompt (not fileData)
   try {
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-pro',
+      model: 'gemini-2.5-flash',
     });
 
     console.log('[Gemini:parseVideo] Calling Gemini API...');
