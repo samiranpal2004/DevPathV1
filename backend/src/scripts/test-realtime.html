@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevPath Realtime Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      .status {
+        font-size: 18px;
+        margin-bottom: 12px;
+      }
+      #events {
+        border: 1px solid #ddd;
+        padding: 12px;
+        min-height: 140px;
+        background: #fafafa;
+        white-space: pre-wrap;
+      }
+      .hint {
+        color: #555;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DevPath Realtime Manual Test</h1>
+    <div class="hint">Fill <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> below, then open this file in a browser.</div>
+    <div id="status" class="status">🔴 Realtime disconnected</div>
+    <div id="events">Waiting for INSERT events from room_daily_log...</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+      const SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';
+      const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+      const ROOM_CODE = 'KGEC42';
+
+      const statusEl = document.getElementById('status');
+      const eventsEl = document.getElementById('events');
+
+      function append(message) {
+        eventsEl.textContent += `\n${new Date().toLocaleTimeString()}  ${message}`;
+      }
+
+      async function start() {
+        if (!window.supabase || !SUPABASE_URL.includes('supabase.co') || SUPABASE_ANON_KEY.startsWith('YOUR_')) {
+          append('Please set SUPABASE_URL and SUPABASE_ANON_KEY before testing.');
+          return;
+        }
+
+        const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const roomLookup = await client.from('rooms').select('id').eq('code', ROOM_CODE).maybeSingle();
+        if (roomLookup.error || !roomLookup.data?.id) {
+          append(`Room lookup failed for code ${ROOM_CODE}: ${roomLookup.error?.message || 'not found'}`);
+          return;
+        }
+
+        const roomId = roomLookup.data.id;
+        append(`Resolved room_id: ${roomId}`);
+
+        const channel = client
+          .channel(`demo-room-daily-log-${roomId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'room_daily_log',
+              filter: `room_id=eq.${roomId}`,
+            },
+            (payload) => {
+              append(`INSERT received: ${JSON.stringify(payload.new)}`);
+            },
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              statusEl.textContent = '🟢 Realtime connected';
+              append('Realtime subscription active.');
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+              statusEl.textContent = '🔴 Realtime disconnected';
+              append(`Realtime status: ${status}`);
+            }
+          });
+
+        window.addEventListener('beforeunload', () => {
+          client.removeChannel(channel);
+        });
+      }
+
+      start().catch((error) => {
+        append(`Unexpected error: ${error.message}`);
+      });
+    </script>
+  </body>
+</html>

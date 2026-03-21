@@ -1,0 +1,34 @@
+import cors from 'cors';
+import express, { type Request, type Response } from 'express';
+
+import onboardingRoutes from './routes/onboarding.routes';
+import missionRoutes from './routes/missions.routes';
+import meRoutes from './routes/me.routes';
+import heatmapRoutes from './routes/heatmap.routes';
+import roomRoutes from './routes/room.routes';
+import gamificationRoutes from './routes/gamification.routes';
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.get('/health', (_req: Request, res: Response) => {
+  return res.status(200).json({ status: 'ok' });
+});
+
+app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/mission', missionRoutes);
+app.use('/api/me', meRoutes);
+app.use('/api/heatmap', heatmapRoutes);
+app.use('/api/rooms', roomRoutes);
+app.use('/api', gamificationRoutes);
+
+app.use((_req: Request, res: Response) => {
+  return res.status(404).json({
+    error: 'NOT_FOUND',
+    message: 'Route not found.',
+  });
+});
+
+export default app;
