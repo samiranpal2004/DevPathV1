@@ -10,7 +10,18 @@ import gamificationRoutes from './routes/gamification.routes';
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      process.env.FRONTEND_URL ?? '',
+    ].filter(Boolean),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id'],
+  })
+);
 app.use(express.json());
 
 app.get('/health', (_req: Request, res: Response) => {
