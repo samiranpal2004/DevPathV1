@@ -11,6 +11,7 @@ import gamificationRoutes from './routes/gamification.routes';
 import leaderboardRoutes from './routes/leaderboard.routes';
 import plansRoutes from './routes/plans.routes';
 import authRoutes from './routes/auth.routes';
+import debugRoutes from './routes/debug.routes';
 
 const app = express();
 
@@ -33,12 +34,22 @@ app.get('/health', (_req: Request, res: Response) => {
   return res.status(200).json({ status: 'ok' });
 });
 
+// Debug route is intentionally public for local Gemini diagnostics.
+// Remove before production deployment.
+app.use('/api', debugRoutes);
+
 app.use('/api', (req: Request, res: Response, next) => {
   const isPublicRoomPreview =
     req.path.startsWith('/rooms/preview/') ||
     req.originalUrl.includes('/api/rooms/preview/');
+  const isPublicDebugGeminiTest =
+    req.path.startsWith('/debug/gemini-test') ||
+    req.originalUrl.includes('/api/debug/gemini-test');
 
-  if (isPublicRoomPreview) {
+  console.log('[App:authGate] path:', req.path, 'originalUrl:', req.originalUrl);
+  console.log('[App:authGate] bypass room preview:', isPublicRoomPreview, 'bypass debug:', isPublicDebugGeminiTest);
+
+  if (isPublicRoomPreview || isPublicDebugGeminiTest) {
     next();
     return;
   }

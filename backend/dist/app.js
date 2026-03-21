@@ -12,7 +12,10 @@ const me_routes_1 = __importDefault(require("./routes/me.routes"));
 const heatmap_routes_1 = __importDefault(require("./routes/heatmap.routes"));
 const room_routes_1 = __importDefault(require("./routes/room.routes"));
 const gamification_routes_1 = __importDefault(require("./routes/gamification.routes"));
+const leaderboard_routes_1 = __importDefault(require("./routes/leaderboard.routes"));
+const plans_routes_1 = __importDefault(require("./routes/plans.routes"));
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
+const debug_routes_1 = __importDefault(require("./routes/debug.routes"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({
     origin: [
@@ -29,13 +32,30 @@ app.use(requireAuth_1.clerkAuth);
 app.get('/health', (_req, res) => {
     return res.status(200).json({ status: 'ok' });
 });
-app.use('/api', requireAuth_1.requireAuth);
+// Debug route is intentionally public for local Gemini diagnostics.
+// Remove before production deployment.
+app.use('/api', debug_routes_1.default);
+app.use('/api', (req, res, next) => {
+    const isPublicRoomPreview = req.path.startsWith('/rooms/preview/') ||
+        req.originalUrl.includes('/api/rooms/preview/');
+    const isPublicDebugGeminiTest = req.path.startsWith('/debug/gemini-test') ||
+        req.originalUrl.includes('/api/debug/gemini-test');
+    console.log('[App:authGate] path:', req.path, 'originalUrl:', req.originalUrl);
+    console.log('[App:authGate] bypass room preview:', isPublicRoomPreview, 'bypass debug:', isPublicDebugGeminiTest);
+    if (isPublicRoomPreview || isPublicDebugGeminiTest) {
+        next();
+        return;
+    }
+    (0, requireAuth_1.requireAuth)(req, res, next);
+});
 app.use('/api/auth', auth_routes_1.default);
 app.use('/api/onboarding', onboarding_routes_1.default);
 app.use('/api/mission', missions_routes_1.default);
 app.use('/api/me', me_routes_1.default);
 app.use('/api/heatmap', heatmap_routes_1.default);
 app.use('/api/rooms', room_routes_1.default);
+app.use('/api/leaderboard', leaderboard_routes_1.default);
+app.use('/api/plans', plans_routes_1.default);
 app.use('/api', gamification_routes_1.default);
 app.use((_req, res) => {
     return res.status(404).json({

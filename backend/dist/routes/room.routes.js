@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const supabase_1 = require("../lib/supabase");
+const requireAuth_1 = require("../middleware/requireAuth");
 const room_service_1 = require("../services/room.service");
 const router = (0, express_1.Router)();
 const ROOM_TYPES = new Set([
@@ -87,6 +89,97 @@ router.post('/join', async (req, res) => {
             return sendError(res, error.statusCode, error.code, error.message);
         }
         return sendError(res, 500, 'INTERNAL_ERROR', 'Unexpected error while joining room.');
+    }
+});
+router.get('/preview/:code', async (req, res) => {
+    try {
+        const code = String(req.params.code ?? '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{6}$/.test(code)) {
+            return sendError(res, 400, 'INVALID_CODE', 'Invalid room code');
+        }
+        const { data: room, error } = await supabase_1.supabaseAdmin
+            .from('rooms')
+            .select('id, code, name, type, status, max_members')
+            .eq('code', code)
+            .eq('status', 'active')
+            .single();
+        if (error || !room) {
+            return sendError(res, 404, 'NOT_FOUND', 'Room not found');
+        }
+        const { data: members } = await supabase_1.supabaseAdmin
+            .from('room_members')
+            .select('user_id, joined_at, users(display_name, avatar_url)')
+            .eq('room_id', room.id);
+        const today = new Date().toISOString().split('T')[0];
+        const { data: standings } = await supabase_1.supabaseAdmin
+            .from('room_daily_log')
+            .select('user_id, tasks_done, xp_earned, finish_position, users(display_name)')
+            .eq('room_id', room.id)
+            .eq('date', today)
+            .order('finish_position', { ascending: true, nullsFirst: false });
+        return sendSuccess(res, 200, {
+            room,
+            members: members ?? [],
+            todayStandings: standings ?? [],
+        });
+    }
+    catch {
+        return sendError(res, 500, 'SERVER_ERROR', 'Failed to fetch preview');
+    }
+});
+/**
+ * GET /api/rooms/my-active-room
+ * Returns the active room the current user is in (most recently joined).
+ * Returns null if user is not in any active room.
+ */
+router.get('/my-active-room', async (req, res) => {
+    const userId = req.userId;
+    if (!isNonEmptyString(userId)) {
+        return sendError(res, 401, 'UNAUTHORIZED', 'Authentication required.');
+    }
+    try {
+        // Find rooms this user is a member of that are currently active
+        const { data: memberships, error } = await supabase_1.supabaseAdmin
+            .from('room_members')
+            .select('room_id')
+            .eq('user_id', userId);
+        if (error || !memberships || memberships.length === 0) {
+            return sendSuccess(res, 200, null);
+        }
+        const roomIds = memberships.map((m) => m.room_id);
+        const { data: activeRoom } = await supabase_1.supabaseAdmin
+            .from('rooms')
+            .select('id, code, name')
+            .in('id', roomIds)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        return sendSuccess(res, 200, activeRoom ?? null);
+    }
+    catch (err) {
+        console.error('[Room] my-active-room failed:', err);
+        return sendSuccess(res, 200, null);
+    }
+});
+router.get('/:id', requireAuth_1.requireAuth, async (req, res) => {
+    try {
+        const id = String(req.params.id ?? '').trim();
+        if (!isValidRoomId(id)) {
+            return sendError(res, 400, 'INVALID_UUID', 'Invalid room ID');
+        }
+        const { data, error } = await supabase_1.supabaseAdmin
+            .from('rooms')
+            .select('id, code, name, type, status, max_members, owner_id, created_at')
+            .eq('id', id)
+            .single();
+        if (error || !data) {
+            return sendError(res, 404, 'NOT_FOUND', 'Room not found');
+        }
+        return sendSuccess(res, 200, data);
+    }
+    catch {
+        return sendError(res, 500, 'SERVER_ERROR', 'Failed to fetch room');
     }
 });
 router.get('/:id/leaderboard', async (req, res) => {
