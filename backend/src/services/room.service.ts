@@ -11,6 +11,7 @@ import {
   RoomType,
 } from '../types/room.types';
 import { generateRoomCode } from '../utils/roomCode';
+import { XpService } from './xp.service';
 
 interface AppErrorOptions {
   statusCode?: number;
@@ -87,6 +88,88 @@ interface RoomIdRow {
 
 export class RoomService {
   private static readonly ROOM_CODE_RETRIES = 3;
+  private readonly xpService = new XpService();
+
+  // FIX: Added idempotent first-finish marker for room daily race bonuses.
+  public async checkAndSetFirstFinish(roomId: string, userId: string): Promise<boolean> {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: existing } = await supabaseAdmin
+      .from('room_daily_log')
+      .select('finish_position')
+      .eq('room_id', roomId)
+      .eq('date', today)
+      .not('finish_position', 'is', null)
+      .limit(1);
+
+    if (existing && existing.length > 0) return false;
+
+    await supabaseAdmin
+      .from('room_daily_log')
+      .update({
+        finish_position: 1,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .eq('date', today);
+
+    return true;
+  }
+
+  // FIX: Added idempotent all-members-complete room XP award flow.
+  public async checkAndAwardAllComplete(roomId: string): Promise<void> {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: alreadyFired } = await supabaseAdmin
+      .from('room_events')
+      .select('id')
+      .eq('room_id', roomId)
+      .eq('event_type', 'room_all_complete')
+      .gte('created_at', `${today}T00:00:00.000Z`)
+      .limit(1);
+
+    if (alreadyFired && alreadyFired.length > 0) return;
+
+    const { count: memberCount } = await supabaseAdmin
+      .from('room_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', roomId);
+
+    const { count: completedCount } = await supabaseAdmin
+      .from('room_daily_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', roomId)
+      .eq('date', today)
+      .eq('tasks_done', 3);
+
+    if (!memberCount || completedCount !== memberCount) return;
+
+    const { data: members } = await supabaseAdmin
+      .from('room_members')
+      .select('user_id')
+      .eq('room_id', roomId);
+
+    if (!members) return;
+
+    await Promise.all(
+      members.map((member) =>
+        this.xpService.awardXp({
+          userId: member.user_id as string,
+          amount: 20,
+          reason: 'room_all_complete',
+          roomId,
+        })
+      )
+    );
+
+    await supabaseAdmin.from('room_events').insert({
+      room_id: roomId,
+      user_id: null,
+      event_type: 'room_all_complete',
+      metadata: { xp_awarded_each: 20, member_count: memberCount },
+    });
+  }
 
   /**
    * Creates a new room, marks it active, and adds the owner as the first member.
@@ -592,126 +675,6 @@ export class RoomService {
     return value;
   }
 
-  /**
-   * Check if anyone has finished today. If not, mark this user as first.
-   * Returns true if this user is first, false otherwise.
-   */
-  public async checkAndSetFirstFinish(roomId: string, userId: string): Promise<boolean> {
-    const todayIso = this.getTodayIsoDate();
-
-    // Check if anyone already has finish_position set
-    const { data: existingFinish } = await supabaseAdmin
-      .from('room_daily_log')
-      .select('user_id')
-      .eq('room_id', roomId)
-      .eq('date', todayIso)
-      .not('finish_position', 'is', null)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingFinish) {
-      return false; // Someone already finished first
-    }
-
-    // This user is first — set finish_position to 1
-    const { error } = await supabaseAdmin
-      .from('room_daily_log')
-      .update({ finish_position: 1 })
-      .eq('room_id', roomId)
-      .eq('user_id', userId)
-      .eq('date', todayIso);
-
-    if (error) {
-      throw new RoomServiceError('Failed to set first finish position.', {
-        statusCode: 500,
-        code: 'FIRST_FINISH_SET_FAILED',
-        cause: error,
-      });
-    }
-
-    return true;
-  }
-
-  /**
-   * Check if all room members have completed today. If yes, award +20 XP to each.
-   * Idempotent — checks for existing 'room_all_complete' event to avoid double-awarding.
-   */
-  public async checkAndAwardAllComplete(roomId: string): Promise<void> {
-    const todayIso = this.getTodayIsoDate();
-
-    // Check if already fired
-    const { data: alreadyFired } = await supabaseAdmin
-      .from('room_events')
-      .select('id')
-      .eq('room_id', roomId)
-      .eq('event_type', 'room_all_complete')
-      .match({ created_at: `gte.${todayIso}` })
-      .maybeSingle();
-
-    if (alreadyFired) {
-      return; // Already awarded today
-    }
-
-    // Get member count
-    const { data: members, error: memberError } = await supabaseAdmin
-      .from('room_members')
-      .select('user_id')
-      .eq('room_id', roomId);
-
-    if (memberError || !members) {
-      throw new RoomServiceError('Failed to fetch room members.', {
-        statusCode: 500,
-        code: 'ROOM_MEMBERS_FETCH_FAILED',
-        cause: memberError,
-      });
-    }
-
-    const memberCount = members.length;
-    if (memberCount === 0) {
-      return; // No members
-    }
-
-    // Get completion count for today
-    const { data: completed, error: completedError } = await supabaseAdmin
-      .from('room_daily_log')
-      .select('user_id')
-      .eq('room_id', roomId)
-      .eq('date', todayIso)
-      .eq('tasks_done', 3);
-
-    if (completedError) {
-      throw new RoomServiceError('Failed to check completion status.', {
-        statusCode: 500,
-        code: 'COMPLETION_CHECK_FAILED',
-        cause: completedError,
-      });
-    }
-
-    const completedCount = completed?.length ?? 0;
-
-    if (completedCount === memberCount) {
-      // All members completed — award bonus
-      const { XpService } = await import('./xp.service');
-      const xpSvc = new XpService();
-
-      for (const member of members) {
-        await xpSvc.awardXp({
-          userId: member.user_id as string,
-          amount: 20,
-          reason: 'room_all_complete',
-          roomId,
-        });
-      }
-
-      // Insert event
-      await supabaseAdmin.from('room_events').insert({
-        room_id: roomId,
-        user_id: members[0]?.user_id as string,
-        event_type: 'room_all_complete',
-        metadata: { xp_awarded: 20 },
-      });
-    }
-  }
 }
 
 export const roomService = new RoomService();

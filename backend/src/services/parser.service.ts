@@ -11,7 +11,7 @@
  */
 import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabase';
-import { parseVideoUrl, generateTopicCurriculum, isQuotaError } from './gemini.service';
+import { parseVideoUrlRaw, generateTopicCurriculumRaw, isQuotaError } from './gemini.service';
 import { detectUrlType } from './onboarding.service';
 import { getDefaultPlan, DefaultPlan } from '../data/default-plans';
 
@@ -19,6 +19,16 @@ export interface ParseResult {
     plan: Record<string, unknown>;
     fromCache: boolean;
     fallback: string | null;
+}
+
+function safeParseGeminiJson(raw: string): unknown {
+    // FIX: Strip Gemini markdown code fences and parse JSON safely.
+    const cleaned = raw
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+    return JSON.parse(cleaned);
 }
 
 /**
@@ -114,6 +124,9 @@ export async function parseUrl(
     // Step 2 — URL type detection
     const detection = detectUrlType(url);
     if (!detection.valid) {
+        if (!/^https?:\/\//i.test(url)) {
+            return parseFromTopic(userId, url, skillTier);
+        }
         throw Object.assign(new Error('unsupported_url'), { code: 'unsupported_url' });
     }
 
@@ -122,7 +135,22 @@ export async function parseUrl(
 
     // Step 3 — Gemini parse
     try {
-        parsedPlan = await parseVideoUrl(url);
+        if (detection.source_type === 'udemy') {
+            const slugMatch = url.match(/udemy\.com\/course\/([a-z0-9-]+)/i);
+            const topicFromSlug = slugMatch?.[1]?.replace(/-/g, ' ') || fallbackTopic || 'JavaScript fundamentals';
+            const rawTopicResponse = await generateTopicCurriculumRaw(topicFromSlug, skillTier);
+            parsedPlan = safeParseGeminiJson(rawTopicResponse) as Record<string, unknown>;
+            usedFallback = 'topic';
+        } else {
+            const rawParserResponse = await parseVideoUrlRaw(url);
+            try {
+                parsedPlan = safeParseGeminiJson(rawParserResponse) as Record<string, unknown>;
+            } catch {
+                const defaultPlan = getDefaultPlan('javascript');
+                const stored = await storePlan(userId, url, 'default', defaultPlan, skillTier);
+                return { plan: stored, fromCache: false, fallback: 'parse_default' };
+            }
+        }
         validateParsedPlan(parsedPlan);
     } catch (err) {
         if (isQuotaError(err)) {
@@ -135,7 +163,8 @@ export async function parseUrl(
         // Step 4 — generic parse fail: topic fallback
         if (fallbackTopic) {
             try {
-                parsedPlan = await generateTopicCurriculum(fallbackTopic, skillTier);
+                const rawTopicResponse = await generateTopicCurriculumRaw(fallbackTopic, skillTier);
+                parsedPlan = safeParseGeminiJson(rawTopicResponse) as Record<string, unknown>;
                 validateParsedPlan(parsedPlan);
                 usedFallback = 'topic';
             } catch (topicErr) {
@@ -168,14 +197,16 @@ export async function parseFromTopic(userId: string, topic: string, skillTier = 
     let usedFallback: string | null = null;
 
     try {
-        parsedPlan = await generateTopicCurriculum(topic, skillTier);
+        const rawTopicResponse = await generateTopicCurriculumRaw(topic, skillTier);
+        parsedPlan = safeParseGeminiJson(rawTopicResponse) as Record<string, unknown>;
         validateParsedPlan(parsedPlan);
     } catch (err) {
         if (isQuotaError(err)) {
             parsedPlan = getDefaultPlan('javascript');
             usedFallback = 'quota_default';
         } else {
-            throw err;
+            parsedPlan = getDefaultPlan('javascript');
+            usedFallback = 'parse_default';
         }
     }
 

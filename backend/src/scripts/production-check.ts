@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { Client } from 'pg';
 
-import { supabaseAdmin } from '../lib/supabase';
+let supabaseAdmin: any;
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
 const TEST_USER_ID = '00000000-0000-0000-0000-000000000099';
@@ -11,6 +11,12 @@ interface CheckResult {
   name: string;
   passed: boolean;
   details?: string;
+}
+
+function validateRequiredEnv(): string[] {
+  // FIX: Added explicit preflight env validation for production check script.
+  const required = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'];
+  return required.filter((key) => !process.env[key] || String(process.env[key]).trim().length === 0);
 }
 
 function deterministicUuid(seed: number): string {
@@ -286,6 +292,16 @@ async function checkDemoPlan(): Promise<void> {
 
 async function run(): Promise<void> {
   console.log('🔍 Running production readiness checks...');
+
+  const missingEnv = validateRequiredEnv();
+  if (missingEnv.length > 0) {
+    console.error('❌ Missing required environment variables for production checks:');
+    missingEnv.forEach((envKey) => console.error(` - ${envKey}`));
+    process.exit(1);
+    return;
+  }
+
+  ({ supabaseAdmin } = await import('../lib/supabase'));
 
   const checks: Array<() => Promise<CheckResult>> = [
     () => runCheck('Supabase connection — can query users table', checkSupabaseConnection),

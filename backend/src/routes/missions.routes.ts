@@ -52,8 +52,9 @@ router.post('/complete-task', validate(completeTaskSchema), async (req: Request,
     if (!userId) return;
 
     try {
-        const { task_num, day_number } = req.body as { task_num: number; day_number: number };
-        const result = await completeTask(userId, task_num, day_number);
+        const { task_num, day_number, room_id } = req.body as { task_num: number; day_number: number; room_id?: string };
+        // FIX: Pass room_id into completion service so room race bonuses can be awarded.
+        const result = await completeTask(userId, task_num, day_number, room_id);
         res.status(200).json(result);
     } catch (err) {
         console.error('complete-task error:', (err as Error).message);
@@ -75,8 +76,19 @@ router.post('/submit-practice', validate(submitPracticeSchema), async (req: Requ
             submitted_code: string | null;
             error_type: string | null;
             hint_used: boolean;
+            room_id?: string;
         };
-        const result = await submitPractice(userId, plan_id, day_number, passed, submitted_code, error_type, hint_used);
+        // FIX: Forward room_id so practice completions participate in room completion checks.
+        const result = await submitPractice(
+            userId,
+            plan_id,
+            day_number,
+            passed,
+            submitted_code,
+            error_type,
+            hint_used,
+            req.body.room_id as string | undefined
+        );
         res.status(200).json(result);
     } catch (err) {
         console.error('submit-practice error:', (err as Error).message);

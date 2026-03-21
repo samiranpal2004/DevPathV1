@@ -62,20 +62,28 @@ No explanation. No markdown. Only the JSON object.`;
  * Throws on quota error (caller must handle fallback).
  */
 export async function parseVideoUrl(url: string): Promise<Record<string, unknown>> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
-    const text = result.response.text().trim();
+  const text = await parseVideoUrlRaw(url);
     return extractJson(text);
+}
+
+export async function parseVideoUrlRaw(url: string): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const result = await model.generateContent(VIDEO_PARSER_PROMPT(url));
+  return result.response.text().trim();
 }
 
 /**
  * Generate a curriculum from a topic name using Gemini 1.5 Pro.
  */
 export async function generateTopicCurriculum(topic: string, skillTier = 'beginner'): Promise<Record<string, unknown>> {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
-    const text = result.response.text().trim();
+  const text = await generateTopicCurriculumRaw(topic, skillTier);
     return extractJson(text);
+}
+
+export async function generateTopicCurriculumRaw(topic: string, skillTier = 'beginner'): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
+  return result.response.text().trim();
 }
 
 /**

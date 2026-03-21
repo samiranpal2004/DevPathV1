@@ -5,8 +5,40 @@
  * and day modes (busy/skip).
  */
 import { supabaseAdmin } from '../lib/supabase';
-import { awardXp, XP } from './xp.service';
+import { XpService, XP } from './xp.service';
+import { BadgeService } from './badge.service';
+import { RoomService } from './room.service';
 import { getMicroLesson, isQuotaError } from './gemini.service';
+import type { ContributionEventType, LevelUpEvent } from '../types/gamification.types';
+
+const xpService = new XpService();
+const badgeService = new BadgeService();
+const roomService = new RoomService();
+
+async function logContribution(
+    userId: string,
+    eventType: ContributionEventType,
+    delta: number,
+    date?: string
+): Promise<void> {
+    // FIX: Centralized contribution event logging helper for all mission actions.
+    await supabaseAdmin.from('contribution_events').insert({
+        user_id: userId,
+        date: date ?? new Date().toISOString().split('T')[0],
+        event_type: eventType,
+        delta,
+    });
+}
+
+async function getPracticeCount(userId: string): Promise<number> {
+    // FIX: Added reusable passed-practice counter for action badge checks.
+    const { count } = await supabaseAdmin
+        .from('practice_attempts')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('passed', true);
+    return count ?? 0;
+}
 
 // ─── Day calculation ──────────────────────────────────────────────────────────
 
@@ -68,6 +100,49 @@ async function getTodayCompletions(userId: string): Promise<TodayCompletions> {
     };
 }
 
+async function getTodayTasksComplete(userId: string): Promise<boolean> {
+    const completions = await getTodayCompletions(userId);
+    return completions.task1Done && completions.task2Done;
+}
+
+async function checkAndHandlePerfectDay(
+    userId: string,
+    planId: string,
+    dayNumber: number,
+    roomId?: string
+): Promise<boolean> {
+    const { data: practice } = await supabaseAdmin
+        .from('practice_attempts')
+        .select('passed')
+        .eq('user_id', userId)
+        .eq('plan_id', planId)
+        .eq('day_number', dayNumber)
+        .eq('passed', true)
+        .limit(1);
+
+    const practiceComplete = (practice?.length ?? 0) > 0;
+    const tasksComplete = await getTodayTasksComplete(userId);
+
+    if (!practiceComplete || !tasksComplete) return false;
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existing } = await supabaseAdmin
+        .from('contribution_events')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('event_type', 'perfect_day')
+        .eq('date', today)
+        .limit(1);
+
+    if (existing && existing.length > 0) return false;
+
+    // FIX: Perfect day now logs zero-delta event and awards dedicated XP once per day.
+    await logContribution(userId, 'perfect_day', 0);
+    await xpService.awardXp({ userId, amount: 25, reason: 'full_day_complete', roomId });
+
+    return true;
+}
+
 // ─── GET /api/mission/today ───────────────────────────────────────────────────
 
 /**
@@ -123,50 +198,141 @@ export async function getTodayMission(userId: string): Promise<Record<string, un
 export async function completeTask(
     userId: string,
     taskNum: number,
-    _dayNumber: number,
-): Promise<{ xp_awarded: number; already_done: boolean; both_tasks_done?: boolean }> {
-    const reason = `task${taskNum}_complete`;
+    dayNumber: number,
+    roomId?: string,
+): Promise<{
+    xp_awarded: number;
+    xpAwarded: number;
+    already_done: boolean;
+    both_tasks_done?: boolean;
+    levelUp: LevelUpEvent | null;
+    isPerfectDay: boolean;
+}> {
 
     // Idempotency: check if already done today
     const completions = await getTodayCompletions(userId);
     if (taskNum === 1 && completions.task1Done) {
-        return { xp_awarded: 0, already_done: true };
+        return {
+            xp_awarded: 0,
+            xpAwarded: 0,
+            already_done: true,
+            levelUp: null,
+            isPerfectDay: false,
+        };
     }
     if (taskNum === 2 && completions.task2Done) {
-        return { xp_awarded: 0, already_done: true };
+        return {
+            xp_awarded: 0,
+            xpAwarded: 0,
+            already_done: true,
+            levelUp: null,
+            isPerfectDay: false,
+        };
     }
 
     let totalXp = XP.TASK_COMPLETE;
+    let levelUpEvent: LevelUpEvent | null = null;
+    let isPerfectDay = false;
 
-    // Award task XP
-    await awardXp(userId, XP.TASK_COMPLETE, reason);
-
-    // Write contribution event
-    await supabaseAdmin.from('contribution_events').insert({
-        user_id: userId,
-        date: new Date().toISOString().split('T')[0],
-        event_type: 'solo_task',
-        delta: 1.0,
+    const taskLevelUp = await xpService.awardXp({
+        userId,
+        amount: XP.TASK_COMPLETE,
+        reason: taskNum === 1 ? 'task1_complete' : 'task2_complete',
+        taskId: `day_${dayNumber}_task_${taskNum}`,
+        roomId,
     });
+    levelUpEvent = taskLevelUp ?? null;
+
+    await logContribution(userId, 'solo_task', 1.0);
 
     // Update streak
-    await updateStreak(userId);
+    const newStreak = await updateStreak(userId);
+    await xpService.checkAndAwardStreakBonus(userId, newStreak);
 
-    // Check if both tasks now done → award full day XP
     const updatedCompletions = await getTodayCompletions(userId);
     const bothDone =
         (taskNum === 1 ? true : updatedCompletions.task1Done) &&
         (taskNum === 2 ? true : updatedCompletions.task2Done);
 
-    if (bothDone && !completions.fullDayDone) {
-        await awardXp(userId, XP.FULL_DAY_COMPLETE, 'full_day_complete');
-        totalXp += XP.FULL_DAY_COMPLETE;
+    const { count: taskCompleteCount } = await supabaseAdmin
+        .from('xp_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .in('reason', ['task1_complete', 'task2_complete']);
+
+    if ((taskCompleteCount ?? 0) === 1) {
+        await badgeService.checkAndAwardActionBadges(userId, { event: 'first_task' });
+    }
+
+    if (roomId) {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: roomLog } = await supabaseAdmin
+            .from('room_daily_log')
+            .select('tasks_done, xp_earned, started_at')
+            .eq('room_id', roomId)
+            .eq('user_id', userId)
+            .eq('date', today)
+            .maybeSingle();
+
+        const newTasksDoneCount = (roomLog?.tasks_done || 0) + 1;
+
+        await supabaseAdmin
+            .from('room_daily_log')
+            .upsert(
+                {
+                    room_id: roomId,
+                    user_id: userId,
+                    date: today,
+                    tasks_done: newTasksDoneCount,
+                    xp_earned: (roomLog?.xp_earned || 0) + totalXp,
+                    started_at: roomLog?.started_at || new Date().toISOString(),
+                },
+                { onConflict: 'room_id,user_id,date' }
+            );
+
+        if (newTasksDoneCount === 3) {
+            const isFirst = await roomService.checkAndSetFirstFinish(roomId, userId);
+            if (isFirst) {
+                const firstFinishLevelUp = await xpService.awardXp({
+                    userId,
+                    amount: 25,
+                    reason: 'room_first_finish',
+                    roomId,
+                });
+                totalXp += 25;
+                levelUpEvent = levelUpEvent ?? firstFinishLevelUp;
+                await logContribution(userId, 'room_win', 2.0);
+                await supabaseAdmin.from('room_events').insert({
+                    room_id: roomId,
+                    user_id: userId,
+                    event_type: 'first_finish',
+                    metadata: { xp_awarded: 25 },
+                });
+            }
+        }
+
+        await roomService.checkAndAwardAllComplete(roomId);
+    }
+
+    const plan = await getActivePlan(userId);
+    if (plan?.id && typeof plan.id === 'string') {
+        isPerfectDay = await checkAndHandlePerfectDay(userId, plan.id, dayNumber, roomId);
+        if (isPerfectDay) {
+            totalXp += XP.FULL_DAY_COMPLETE;
+        }
+    }
+
+    if (levelUpEvent) {
+        await logContribution(userId, 'level_up', 0);
     }
 
     return {
         xp_awarded: totalXp,
+        xpAwarded: totalXp,
         already_done: false,
         both_tasks_done: bothDone,
+        levelUp: levelUpEvent,
+        isPerfectDay,
     };
 }
 
@@ -180,7 +346,15 @@ export async function submitPractice(
     submittedCode: string | null,
     errorType: string | null,
     hintUsed: boolean,
-): Promise<{ xp_awarded: number; passed: boolean; attempt_id: string }> {
+    roomId?: string,
+): Promise<{
+    xp_awarded: number;
+    xpAwarded: number;
+    passed: boolean;
+    attempt_id: string;
+    levelUp: LevelUpEvent | null;
+    isPerfectDay: boolean;
+}> {
     // Count previous attempts this day
     const { count } = await supabaseAdmin
         .from('practice_attempts')
@@ -209,23 +383,106 @@ export async function submitPractice(
     if (error) throw new Error(`DB error saving attempt: ${error.message}`);
 
     let xpAwarded = 0;
+    let levelUpEvent: LevelUpEvent | null = null;
+    let isPerfectDay = false;
 
     if (passed) {
-        const xpReason = hintUsed ? 'practice_solved' : 'practice_solved_no_hint';
-        const xpAmount = hintUsed ? XP.PRACTICE_SOLVED : XP.PRACTICE_SOLVED + XP.NO_HINT_BONUS;
-        await awardXp(userId, xpAmount, xpReason);
-        xpAwarded = xpAmount;
-
-        // Contribution event for solving
-        await supabaseAdmin.from('contribution_events').insert({
-            user_id: userId,
-            date: new Date().toISOString().split('T')[0],
-            event_type: 'practice_solved',
-            delta: 1.0,
+        // FIX: Practice completion now captures level-up payload and returns it in response.
+        const practiceLevelUp = await xpService.awardXp({
+            userId,
+            amount: XP.PRACTICE_SOLVED,
+            reason: 'practice_solved',
+            taskId: `day_${dayNumber}_practice`,
+            roomId,
         });
+        xpAwarded = XP.PRACTICE_SOLVED;
+        levelUpEvent = practiceLevelUp ?? null;
+
+        if (!hintUsed) {
+            const noHintLevelUp = await xpService.awardXp({
+                userId,
+                amount: XP.NO_HINT_BONUS,
+                reason: 'no_hint_bonus',
+                roomId,
+            });
+            xpAwarded += XP.NO_HINT_BONUS;
+            levelUpEvent = levelUpEvent ?? noHintLevelUp;
+            await badgeService.checkAndAwardActionBadges(userId, { event: 'solve_no_hint' });
+        }
+
+        await logContribution(userId, 'practice_solved', 1.0);
+
+        const practiceCount = await getPracticeCount(userId);
+        await badgeService.checkAndAwardActionBadges(userId, {
+            event: 'practice_count',
+            count: practiceCount,
+        });
+
+        isPerfectDay = await checkAndHandlePerfectDay(userId, planId, dayNumber, roomId);
+
+        if (roomId) {
+            const today = new Date().toISOString().split('T')[0];
+            const { data: roomLog } = await supabaseAdmin
+                .from('room_daily_log')
+                .select('tasks_done, xp_earned, started_at')
+                .eq('room_id', roomId)
+                .eq('user_id', userId)
+                .eq('date', today)
+                .maybeSingle();
+
+            const newTasksDoneCount = (roomLog?.tasks_done || 0) + 1;
+
+            await supabaseAdmin
+                .from('room_daily_log')
+                .upsert(
+                    {
+                        room_id: roomId,
+                        user_id: userId,
+                        date: today,
+                        tasks_done: newTasksDoneCount,
+                        xp_earned: (roomLog?.xp_earned || 0) + xpAwarded,
+                        started_at: roomLog?.started_at || new Date().toISOString(),
+                    },
+                    { onConflict: 'room_id,user_id,date' }
+                );
+
+            if (newTasksDoneCount === 3) {
+                const isFirst = await roomService.checkAndSetFirstFinish(roomId, userId);
+                if (isFirst) {
+                    const firstFinishLevelUp = await xpService.awardXp({
+                        userId,
+                        amount: 25,
+                        reason: 'room_first_finish',
+                        roomId,
+                    });
+                    xpAwarded += 25;
+                    levelUpEvent = levelUpEvent ?? firstFinishLevelUp;
+                    await logContribution(userId, 'room_win', 2.0);
+                    await supabaseAdmin.from('room_events').insert({
+                        room_id: roomId,
+                        user_id: userId,
+                        event_type: 'first_finish',
+                        metadata: { xp_awarded: 25 },
+                    });
+                }
+            }
+
+            await roomService.checkAndAwardAllComplete(roomId);
+        }
+
+        if (levelUpEvent) {
+            await logContribution(userId, 'level_up', 0);
+        }
     }
 
-    return { xp_awarded: xpAwarded, passed, attempt_id: (attempt as { id: string }).id };
+    return {
+        xp_awarded: xpAwarded,
+        xpAwarded,
+        passed,
+        attempt_id: (attempt as { id: string }).id,
+        levelUp: levelUpEvent,
+        isPerfectDay,
+    };
 }
 
 // ─── Streak helpers ───────────────────────────────────────────────────────────
@@ -234,14 +491,14 @@ export async function submitPractice(
  * Increment streak if the user hasn't been active yet today.
  * Also checks for 7-day freeze recharge and streak milestones.
  */
-async function updateStreak(userId: string): Promise<void> {
+async function updateStreak(userId: string): Promise<number> {
     const { data: prefs } = await supabaseAdmin
         .from('user_preferences')
         .select('streak_count, longest_streak, last_active_date, freeze_count, freeze_last_used')
         .eq('user_id', userId)
         .single();
 
-    if (!prefs) return;
+    if (!prefs) return 0;
 
     const p = prefs as {
         streak_count: number;
@@ -254,7 +511,7 @@ async function updateStreak(userId: string): Promise<void> {
     const today = new Date().toISOString().split('T')[0];
 
     // Already active today — no double-increment
-    if (p.last_active_date === today) return;
+    if (p.last_active_date === today) return p.streak_count;
 
     const newStreak = p.streak_count + 1;
     const newLongest = Math.max(newStreak, p.longest_streak || 0);
@@ -278,19 +535,15 @@ async function updateStreak(userId: string): Promise<void> {
         })
         .eq('user_id', userId);
 
-    // Streak milestone XP: 7, 14, 30, 100 days
-    const milestones = [7, 14, 30, 100];
-    if (milestones.includes(newStreak)) {
-        await awardXp(userId, 50, 'streak_milestone');
-    } else {
-        await awardXp(userId, XP.STREAK_BONUS, 'streak_bonus');
-    }
+    return newStreak;
 }
 
 // ─── POST /api/mission/busy-day ───────────────────────────────────────────────
 
 export async function busyDay(userId: string): Promise<{
     xp_awarded: number;
+    xpAwarded: number;
+    levelUp: LevelUpEvent | null;
     streak_preserved: boolean;
     freeze_used: boolean;
     freeze_remaining: number;
@@ -325,19 +578,23 @@ export async function busyDay(userId: string): Promise<{
 
     await supabaseAdmin.from('user_preferences').update(updates).eq('user_id', userId);
 
-    // Award busy day XP
-    await awardXp(userId, XP.BUSY_DAY, 'busy_day');
-
-    // Write contribution (half intensity)
-    await supabaseAdmin.from('contribution_events').insert({
-        user_id: userId,
-        date: today,
-        event_type: 'solo_task',
-        delta: 0.5,
+    const levelUpEvent = await xpService.awardXp({
+        userId,
+        amount: XP.BUSY_DAY,
+        reason: 'busy_day_task',
     });
+
+    if (levelUpEvent) {
+        await logContribution(userId, 'level_up', 0, today);
+    }
+
+    // FIX: Busy day now logs standardized solo_task contribution through shared helper.
+    await logContribution(userId, 'solo_task', 0.5, today);
 
     return {
         xp_awarded: XP.BUSY_DAY,
+        xpAwarded: XP.BUSY_DAY,
+        levelUp: levelUpEvent ?? null,
         streak_preserved: freezeAvailable,
         freeze_used: freezeAvailable,
         freeze_remaining: freezeAvailable ? p.freeze_count - 1 : 0,

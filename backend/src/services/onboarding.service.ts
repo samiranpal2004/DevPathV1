@@ -50,8 +50,8 @@ export async function savePreferences(userId: string, goal: string, daily_time_m
  * Detect URL type for parse-url validation.
  */
 export function detectUrlType(url: string): UrlDetectionResult {
-    const YOUTUBE_PLAYLIST = /youtube\.com\/playlist\?list=([A-Za-z0-9_-]+)/;
-    const YOUTUBE_VIDEO = /youtube\.com\/watch\?v=([A-Za-z0-9_-]+)/;
+    const YOUTUBE_PLAYLIST = /(?:youtube\.com\/playlist\?.*list=|youtube\.com\/watch\?.*list=)([A-Za-z0-9_-]+)/;
+    const YOUTUBE_VIDEO = /youtube\.com\/watch\?.*v=([A-Za-z0-9_-]+)/;
     const YOUTUBE_SHORT = /youtu\.be\/([A-Za-z0-9_-]+)/;
     const UDEMY_COURSE = /udemy\.com\/course\/([a-z0-9-]+)/i;
 

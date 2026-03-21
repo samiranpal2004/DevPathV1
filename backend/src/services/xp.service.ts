@@ -1,4 +1,11 @@
-import type { XpAwardPayload, UserXpProfile, StreakProfile, LevelUpEvent } from '../types/gamification.types';
+import type {
+  XpAwardPayload,
+  UserXpProfile,
+  StreakProfile,
+  LevelUpEvent,
+  BadgeKey,
+  ContributionEventType,
+} from '../types/gamification.types';
 import { supabaseAdmin } from '../lib/supabase';
 import { getLevelFromXp, getXpToNextLevel, getProgressPercent, LEVEL_RANKS } from '../config/xp.config';
 
@@ -41,6 +48,24 @@ export async function getUserXp(userId: string): Promise<{ total_xp: number; wee
  * The materialized view `user_xp_totals` is refreshed automatically by DB trigger.
  */
 export class XpService {
+  // Verify trigger:
+  // SELECT trigger_name FROM information_schema.triggers
+  // WHERE trigger_name = 'trg_refresh_xp';
+
+  private async logContribution(
+    userId: string,
+    eventType: ContributionEventType,
+    delta: number,
+    date?: string
+  ): Promise<void> {
+    await supabaseAdmin.from('contribution_events').insert({
+      user_id: userId,
+      date: date ?? new Date().toISOString().split('T')[0],
+      event_type: eventType,
+      delta,
+    });
+  }
+
   /**
    * Award XP to a user and detect level-ups.
    * 
@@ -53,36 +78,29 @@ export class XpService {
   async awardXp(payload: XpAwardPayload): Promise<LevelUpEvent | null> {
     const { userId, amount, reason, taskId, roomId } = payload;
 
-    // Before insert: get current level for comparison
-    const oldProfile = await this.getUserXpProfile(userId);
-    const oldLevel = oldProfile.level;
+    // FIX: Compare before/after XP profile to emit full level-up payload.
+    const before = await this.getUserXpProfile(userId);
+    const oldLevel = before?.level ?? 1;
+    const oldXp = before?.totalXp ?? 0;
 
     // Insert into xp_events (immutable write)
-    await supabaseAdmin
+    const { error: insertError } = await supabaseAdmin
       .from('xp_events')
       .insert({
         user_id: userId,
-        xp_amount: amount,
+        amount,
         reason: reason,
         task_id: taskId || null,
         room_id: roomId || null,
         created_at: new Date().toISOString(),
       });
 
-    // Query materialized view to get the new total
-    const { data: newXpData, error: xpError } = await supabaseAdmin
-      .from('user_xp_totals')
-      .select('total_xp')
-      .eq('user_id', userId)
-      .single();
-
-    if (xpError || !newXpData) {
-      // User may have no XP yet; treat as level 1
-      return null;
+    if (insertError) {
+      throw new Error(`XP insert failed: ${insertError.message}`);
     }
 
-    const newTotalXp = newXpData.total_xp as number;
-    const newLevel = getLevelFromXp(newTotalXp);
+    const after = await this.getUserXpProfile(userId);
+    const newLevel = after.level;
 
     if (newLevel > oldLevel) {
       return {
@@ -90,8 +108,12 @@ export class XpService {
         oldLevel,
         newLevel,
         newRank: LEVEL_RANKS[newLevel],
-        xpAtLevelUp: newTotalXp,
+        xpAtLevelUp: after.totalXp,
       };
+    }
+
+    if (newLevel === oldLevel && after.totalXp < oldXp) {
+      return null;
     }
 
     return null;
@@ -171,26 +193,29 @@ export class XpService {
    * Milestones: 7→'week_warrior', 30→'on_fire', 100→'legend'
    */
   async checkAndAwardStreakBonus(userId: string, currentStreak: number): Promise<void> {
-    const streakMilestones: Record<number, string> = {
+    const milestones: Record<number, BadgeKey | null> = {
       7: 'week_warrior',
+      14: null,
       30: 'on_fire',
       100: 'legend',
     };
 
-    if (currentStreak in streakMilestones) {
-      // Award milestone XP
-      await this.awardXp({
-        userId,
-        amount: 50,
-        reason: 'streak_milestone',
-      });
+    if (!(currentStreak in milestones)) return;
 
-      // Award corresponding badge via BadgeService
-      // (imported separately to avoid circular dependency)
+    // FIX: Award streak milestone XP + optional badge + contribution marker.
+    await this.awardXp({
+      userId,
+      amount: 50,
+      reason: 'streak_milestone',
+    });
+
+    const badgeKey = milestones[currentStreak];
+    if (badgeKey) {
       const { BadgeService } = await import('./badge.service');
       const badgeService = new BadgeService();
-      const badgeKey = streakMilestones[currentStreak];
-      await badgeService.awardBadge(userId, badgeKey as any);
+      await badgeService.awardBadge(userId, badgeKey);
     }
+
+    await this.logContribution(userId, 'streak_milestone', 0);
   }
 }

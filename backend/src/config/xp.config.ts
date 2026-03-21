@@ -1,6 +1,8 @@
 import type { RankName, XpReason } from '../types/gamification.types';
 
 export const XP_REWARDS: Record<XpReason, number> = {
+  task1_complete: 20,
+  task2_complete: 20,
   task_complete: 20,
   practice_solved: 30,
   full_day_complete: 25,

@@ -14,6 +14,8 @@ export type BadgeKey =
   | 'speed_demon';
 
 export type XpReason =
+  | 'task1_complete'
+  | 'task2_complete'
   | 'task_complete'
   | 'practice_solved'
   | 'full_day_complete'
@@ -83,3 +85,12 @@ export interface BadgeTrigger {
     | 'returned_after_gap';
   count?: number;
 }
+
+export type ContributionEventType =
+  | 'solo_task'
+  | 'practice_solved'
+  | 'quest_complete'
+  | 'room_win'
+  | 'perfect_day'
+  | 'streak_milestone'
+  | 'level_up';
