@@ -43,10 +43,6 @@ app.use('/api', (req, res, next) => {
     console.log('[App:authGate] path:', req.path, 'originalUrl:', req.originalUrl);
     console.log('[App:authGate] bypass room preview:', isPublicRoomPreview, 'bypass debug:', isPublicDebugGeminiTest);
     if (isPublicRoomPreview || isPublicDebugGeminiTest) {
-app.use('/api', (req, res, next) => {
-    const isPublicRoomPreview = req.path.startsWith('/rooms/preview/') ||
-        req.originalUrl.includes('/api/rooms/preview/');
-    if (isPublicRoomPreview) {
         next();
         return;
     }
