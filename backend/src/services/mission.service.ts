@@ -816,9 +816,8 @@ export async function getStuckHint(
         .eq('user_id', userId)
         .single();
 
-    if (!prefs) throw new Error('User preferences not found');
-
-    const p = prefs as { skill_tier: string };
+   
+const skillTier = (prefs?.skill_tier as string) ?? 'beginner';
 
     // Fetch last 3 practice attempts for context
     const { data: attempts } = await supabaseAdmin
@@ -853,7 +852,7 @@ export async function getStuckHint(
             topic,
             problem,
             errorTypes,
-            skillTier: p.skill_tier || 'beginner',
+            skillTier,
         });
         return { micro_lesson: microLesson, fallback: false };
     } catch (err) {
