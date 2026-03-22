@@ -7,6 +7,8 @@ const router = Router();
 // GET /api/heatmap/me — heatmap for the authenticated user
 router.get('/me', async (req: Request, res: Response): Promise<Response> => {
   const userId = req.userId;
+    console.log('[Heatmap] userId received:', userId); // ADD THIS
+
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required.' });
   }

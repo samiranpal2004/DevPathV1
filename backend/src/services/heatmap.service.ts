@@ -301,30 +301,33 @@ ORDER BY date ASC
     const date = new Date();
     date.setHours(0, 0, 0, 0);
     date.setDate(date.getDate() - 364);
-    return this.toIsoDate(date);
+    return this.toLocalIsoDate(date);
   }
 
   private getTodayIso(): string {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
-    return this.toIsoDate(date);
+    return this.toLocalIsoDate(date);
   }
 
   private offsetIsoDate(startIso: string, offset: number): string {
-    const date = new Date(`${startIso}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + offset);
-    return this.toIsoDate(date);
+    const date = new Date(`${startIso}T00:00:00`);
+    date.setDate(date.getDate() + offset);
+    return this.toLocalIsoDate(date);
   }
 
   private normalizeToIsoDate(value: string): string {
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       return value;
     }
-    return this.toIsoDate(new Date(value));
+    return this.toLocalIsoDate(new Date(value));
   }
 
-  private toIsoDate(date: Date): string {
-    return date.toISOString().slice(0, 10);
+  private toLocalIsoDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private toNumber(value: number | string | null | undefined): number {

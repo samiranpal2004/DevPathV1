@@ -129,10 +129,6 @@ async function parseVideoUrlRaw(url) {
             else {
                 console.warn('[Gemini:parseVideo] oEmbed returned non-OK status:', response.status);
                 console.log('[Gemini:parseVideo] oEmbed result:', 'FAILED — using URL only');
-                console.log('[Gemini] oEmbed success:', videoContext);
-            }
-            else {
-                console.warn('[Gemini] oEmbed returned non-OK status:', response.status);
             }
         }
         catch (err) {
@@ -144,9 +140,6 @@ async function parseVideoUrlRaw(url) {
     }
     else {
         console.log('[Gemini:parseVideo] oEmbed result:', 'FAILED — using URL only');
-    }
-            console.warn('[Gemini] oEmbed fetch failed:', err);
-        }
     }
     // Step 3 — Build contextual prompt with real video info
     // NEVER use fileData — it hallucinates for unknown videos
@@ -185,16 +178,6 @@ ${VIDEO_PARSER_PROMPT_TEXT}`;
         logGeminiError('Gemini:parseVideo', err);
         throw err;
     }
-    console.log('[Gemini] Sending prompt with context:', contextBlock);
-    // Step 4 — Call Gemini with text prompt (not fileData)
-    const model = genAI.getGenerativeModel({
-        model: 'gemini-2.5-pro'
-    });
-    const result = await model.generateContent(fullPrompt);
-    const text = result.response.text().trim();
-    console.log('[Gemini] Raw response length:', text.length);
-    console.log('[Gemini] Response preview:', text.slice(0, 200));
-    return text;
 }
 /**
  * Generate a curriculum from a topic name using Gemini 1.5 Pro.
@@ -234,13 +217,6 @@ async function generateTopicCurriculumRaw(topic, skillTier = 'beginner') {
         logGeminiError('Gemini:generateTopicCurriculum', err);
         throw err;
     }
-    // Use flash for topic curriculum — saves pro quota 
-    // for video parsing where accuracy matters most
-    const model = genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash'
-    });
-    const result = await model.generateContent(TOPIC_CURRICULUM_PROMPT(topic, skillTier));
-    return result.response.text().trim();
 }
 /**
  * Generate 5 skill-assessment questions for the given goal using Gemini 1.5 Flash.
@@ -299,7 +275,34 @@ async function evaluateCode(code, language, taskTitle, taskDescription) {
     console.log('[Gemini:evaluateCode] API Key prefix:', apiKeyPrefix());
     console.log('[Gemini:evaluateCode] Model: gemini-2.5-flash');
     console.log('───────────────────────────────────');
-    const prompt = `You are a coding instructor evaluating a student's code submission.
+    const isTextAnswer = language === 'text';
+    const prompt = isTextAnswer
+        ? `You are a coding instructor evaluating a student's written answer.
+
+Task title: "${taskTitle}"
+Task description: "${taskDescription}"
+
+Student's written answer:
+"""
+${code}
+"""
+
+Evaluate the written answer and return ONLY valid JSON with this structure:
+{
+  "passed": boolean,
+  "score": number (0-100, how well it addresses the task),
+  "feedback": "string (1-2 sentence overall verdict — be encouraging)",
+  "hints": ["string", "string"] (1-3 specific, actionable hints if score < 80, empty array if passed well)
+}
+
+Rules:
+- passed = true if score >= 70
+- Evaluate based on conceptual understanding, accuracy, and completeness
+- The answer does not need to contain code — a clear text explanation is valid
+- Be encouraging even when the answer is incomplete
+- hints should point out missing concepts or inaccuracies
+No explanation. No markdown. Only the JSON object.`
+        : `You are a coding instructor evaluating a student's code submission.
 
 Task title: "${taskTitle}"
 Task description: "${taskDescription}"
@@ -412,7 +415,6 @@ async function analyzeVideoForQuiz(url) {
     console.log('[Gemini:analyzeVideoForQuiz] API Key prefix:', apiKeyPrefix());
     console.log('[Gemini:analyzeVideoForQuiz] Model: gemini-2.5-flash');
     console.log('───────────────────────────────────');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `Watch this YouTube video carefully and do TWO things:
 
 1. Analyse the video content — extract the main topic, key concepts taught, estimated difficulty, total duration.
@@ -460,13 +462,6 @@ No explanation. No markdown. Only the JSON object.`;
         logGeminiError('Gemini:analyzeVideoForQuiz', err);
         throw err;
     }
-    const result = await model.generateContent([
-        { fileData: { fileUri: url, mimeType: 'video/mp4' } },
-        { text: prompt },
-    ]);
-    const text = result.response.text().trim();
-    const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-    return JSON.parse(stripped);
 }
 /**
  * Generate a personalised day-wise plan based on the video analysis and the
@@ -484,7 +479,6 @@ async function generatePersonalizedPlan(analysis, skillLevel, dailyTimeMinutes =
     console.log('[Gemini:generatePersonalizedPlan] API Key prefix:', apiKeyPrefix());
     console.log('[Gemini:generatePersonalizedPlan] Model: gemini-2.5-flash');
     console.log('───────────────────────────────────');
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `You are building a personalised coding study plan.
 
 Video topic: "${analysis.topic}"
@@ -540,8 +534,6 @@ No explanation. No markdown. Only the JSON object.`;
         logGeminiError('Gemini:generatePersonalizedPlan', err);
         throw err;
     }
-    const result = await model.generateContent(prompt);
-    return result.response.text().trim();
 }
 /**
  * Detect if an error is a Gemini quota / rate-limit error.
