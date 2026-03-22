@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import dynamic from 'next/dynamic';
+import ReactMarkdown from 'react-markdown';
 import type { editor } from 'monaco-editor';
 
 // Load Monaco only on client — SSR breaks it
@@ -75,8 +76,21 @@ export function CodeEditor({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<EvalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
+  const [isLoadingHint, setIsLoadingHint] = useState(false);
+  const [hint, setHint] = useState<{
+    micro_lesson: string;
+    fallback: boolean;
+  } | null>(null);
+  const [hintError, setHintError] = useState<string | null>(null);
+  
   const isTextMode = language === 'text';
+
+  useEffect(() => {
+    return () => {
+      setHint(null);
+      setHintError(null);
+    };
+  }, []);
 
   function handleLanguageChange(lang: string) {
     if (lang === 'text') {
@@ -157,12 +171,58 @@ export function CodeEditor({
     }
   }
 
+  async function handleStuck() {
+    if (isLoadingHint || hint) return;
+
+    setIsLoadingHint(true);
+    setHintError(null);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/mission/stuck`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            plan_id: planId,
+            day_number: dayNumber,
+            problem: taskDescription,
+            topic: taskTitle,
+          }),
+        }
+      );
+
+      if (res.status === 429) {
+        setHintError('Gemini quota reached. Try again soon.');
+        return;
+      }
+      if (!res.ok) {
+        setHintError('Could not load hint. Try again.');
+        return;
+      }
+
+      const data = await res.json() as {
+        micro_lesson: string;
+        fallback: boolean;
+      };
+      setHint(data);
+    } catch {
+      setHintError('Something went wrong loading the hint.');
+    } finally {
+      setIsLoadingHint(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-4xl bg-[#1e1e1e] rounded-2xl shadow-2xl flex flex-col"
+      <div className="w-full max-w-4xl bg-[#1e1e1e] rounded-2xl shadow-2xl flex flex-col overflow-y-auto"
         style={{ maxHeight: '92vh' }}>
 
         {/* ── Header ─────────────────────────────────────────── */}
@@ -285,6 +345,41 @@ export function CodeEditor({
           </div>
         )}
 
+        {/* ── Hint panel ─────────────────────────────────── */}
+        {hint && (
+          <div className="px-5 py-3 border-t border-white/5 bg-blue-950/30 shrink-0 max-h-48 overflow-y-auto">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                <span className="material-symbols-outlined text-sm text-blue-400">
+                  lightbulb
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-blue-400 text-[10px] font-bold uppercase tracking-wider mb-2">
+                  Hint from your AI Coach
+                </p>
+                <div className="text-white/70 text-xs leading-relaxed prose prose-invert prose-xs max-w-none [&>p]:mb-2 [&>p]:text-white/70 [&>ol]:pl-4 [&>ol]:space-y-1 [&>ol]:text-white/70 [&>ul]:pl-4 [&>ul]:space-y-1 [&>ul]:text-white/70 [&>li]:text-white/70 [&>li]:text-xs [&_strong]:text-blue-300 [&_strong]:font-semibold [&_em]:text-white/60 [&_code]:text-green-400 [&_code]:bg-black/30 [&_code]:px-1 [&_code]:rounded [&_p]:leading-relaxed">
+                  <ReactMarkdown>
+                    {hint.micro_lesson}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Hint error */}
+        {hintError && (
+          <div className="px-5 py-2 border-t border-white/5 bg-red-950/20 shrink-0">
+            <p className="text-red-400 text-xs flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm">
+                error
+              </span>
+              {hintError}
+            </p>
+          </div>
+        )}
+
         {/* ── Footer ─────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-3 bg-[#252526] rounded-b-2xl border-t border-white/5 shrink-0">
           <div className="flex items-center gap-3">
@@ -302,6 +397,40 @@ export function CodeEditor({
             <button onClick={onClose} className="text-xs text-white/40 hover:text-white/70 transition-colors">
               Cancel
             </button>
+
+            <button
+              onClick={() => void handleStuck()}
+              disabled={isLoadingHint || !!hint}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-full transition-all border ${
+                hint
+                  ? 'border-blue-500/20 text-blue-400/40 cursor-default'
+                  : isLoadingHint
+                    ? 'border-blue-500/30 text-blue-400/60 cursor-wait'
+                    : 'border-blue-500/40 text-blue-400 hover:bg-blue-500/10 active:scale-95'
+              }`}
+            >
+              {isLoadingHint ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+                  Getting hint…
+                </>
+              ) : hint ? (
+                <>
+                  <span className="material-symbols-outlined text-sm">
+                    lightbulb
+                  </span>
+                  Hint shown
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-sm">
+                    help
+                  </span>
+                  I&apos;m stuck
+                </>
+              )}
+            </button>
+
             <button
               onClick={() => void handleSubmit()}
               disabled={isSubmitting}
