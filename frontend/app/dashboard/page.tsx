@@ -122,33 +122,6 @@ export default function Dashboard() {
         </footer>
       </main>
 
-      {/* Side Navigation Sidebar */}
-      <aside className="hidden xl:flex flex-col py-8 px-6 fixed left-0 top-0 h-full w-20 bg-surface-container-low/30 items-center gap-8 border-r border-outline-variant/5">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
-          <span className="material-symbols-outlined text-white">terminal</span>
-        </div>
-        
-        <nav className="flex flex-col gap-6">
-          <a className="p-3 rounded-full bg-white text-primary shadow-sm" href="/dashboard">
-            <span className="material-symbols-outlined" style={{fontVariationSettings: "'FILL' 1"}}>dashboard</span>
-          </a>
-          <a className="p-3 rounded-full text-on-surface-variant hover:bg-surface-container-highest transition-all" href="/room">
-            <span className="material-symbols-outlined">groups</span>
-          </a>
-          <a className="p-3 rounded-full text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
-            <span className="material-symbols-outlined">calendar_view_month</span>
-          </a>
-        </nav>
-        
-        <div className="mt-auto flex flex-col gap-4">
-          <a className="p-3 rounded-full text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
-            <span className="material-symbols-outlined">settings</span>
-          </a>
-          <a className="p-3 rounded-full text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
-            <span className="material-symbols-outlined">help_outline</span>
-          </a>
-        </div>
-      </aside>
     </>
   );
 }

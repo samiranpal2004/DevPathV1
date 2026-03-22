@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
+import Link from 'next/link';
 import type { LeaderboardEntry, RoomFeedEvent } from '@/lib/types/room';
 
 function getSupabaseRealtime() {
@@ -15,13 +16,13 @@ function getSupabaseRealtime() {
 
 function getEventDot(eventType: string): string {
   const map: Record<string, string> = {
-    first_finish: 'bg-yellow-400',
-    task_complete: 'bg-green-500',
-    practice_solved: 'bg-blue-500',
-    nudge_sent: 'bg-orange-400',
-    member_joined: 'bg-purple-400',
+    first_finish: 'bg-tertiary-container',
+    task_complete: 'bg-primary',
+    practice_solved: 'bg-primary-fixed-dim',
+    nudge_sent: 'bg-tertiary',
+    member_joined: 'bg-secondary',
   };
-  return map[eventType] ?? 'bg-gray-500';
+  return map[eventType] ?? 'bg-outline';
 }
 
 function formatEventText(event: RoomFeedEvent): string {
@@ -33,9 +34,9 @@ function formatEventText(event: RoomFeedEvent): string {
     case 'task_complete':
       return `${event.displayName} completed Task ${meta.task_num ?? ''} · +${meta.xp_awarded ?? 20} XP`;
     case 'practice_solved':
-      return `${event.displayName} solved the practice problem`;
+      return `${event.displayName} solved the practice problem · +${meta.xp_awarded ?? 30} XP`;
     case 'nudge_sent':
-      return `${event.displayName} sent a nudge 👋`;
+      return `${event.displayName} sent a nudge`;
     case 'member_joined':
       return `${event.displayName} joined the room`;
     default:
@@ -53,10 +54,12 @@ export default function RoomPage() {
   const [feed, setFeed] = useState<RoomFeedEvent[]>([]);
   const [roomName, setRoomName] = useState('');
   const [roomCode, setRoomCode] = useState('');
+  const [roomType, setRoomType] = useState('daily_sprint');
   const [isLive, setIsLive] = useState(false);
   const [nudgedUsers, setNudgedUsers] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const fetchLeaderboard = useCallback(async (): Promise<LeaderboardEntry[] | null> => {
     try {
@@ -109,6 +112,7 @@ export default function RoomPage() {
       const data = await res.json();
       setRoomName(data.data?.name ?? '');
       setRoomCode(data.data?.code ?? '');
+      setRoomType(data.data?.type ?? 'daily_sprint');
       setPageError(null);
       return 'ok';
     } catch {
@@ -176,7 +180,6 @@ export default function RoomPage() {
           )
           .subscribe((status: string) => {
             setIsLive(status === 'SUBSCRIBED');
-            console.log('[Realtime] Status:', status);
           })
       : null;
 
@@ -206,22 +209,20 @@ export default function RoomPage() {
     }
   }
 
-  function positionBadge(entry: LeaderboardEntry, index: number): string {
-    if (entry.tasksDone === 3) {
-      if (entry.finishPosition === 1) return '🥇';
-      if (entry.finishPosition === 2) return '🥈';
-      if (entry.finishPosition === 3) return '🥉';
-    }
-    if (entry.tasksDone > 0) return `${index + 1}`;
-    return '—';
+  function handleCopyCode() {
+    navigator.clipboard.writeText(roomCode);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
   }
+
+  const roomTypeLabel = roomType === 'daily_sprint' ? 'Daily Sprint' : roomType.replace(/_/g, ' ');
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <main className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">Loading room...</p>
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-on-surface-variant text-sm font-body">Loading room...</p>
         </div>
       </main>
     );
@@ -229,14 +230,14 @@ export default function RoomPage() {
 
   if (pageError) {
     return (
-      <main className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+      <main className="min-h-screen bg-background flex items-center justify-center px-4">
         <div className="text-center">
-          <p className="text-5xl mb-4">⚠️</p>
-          <h1 className="text-white font-bold text-xl mb-2">Room unavailable</h1>
-          <p className="text-gray-400 text-sm mb-6">{pageError}</p>
+          <span className="material-symbols-outlined text-5xl text-outline mb-4 block">error_outline</span>
+          <h1 className="text-on-background font-bold text-xl mb-2 font-headline">Room unavailable</h1>
+          <p className="text-on-surface-variant text-sm mb-6">{pageError}</p>
           <button
             onClick={() => router.push('/dashboard')}
-            className="px-6 py-2.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
+            className="px-6 py-2.5 rounded-full bg-primary hover:bg-primary/90 text-on-primary text-sm font-semibold transition-colors"
           >
             Back to Dashboard
           </button>
@@ -246,90 +247,226 @@ export default function RoomPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-950 px-4 py-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-white font-bold text-xl">{roomName}</h1>
-          <p className="text-gray-400 text-sm">Daily Sprint · {leaderboard.length} members</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-gray-400 font-mono text-sm bg-gray-800 px-3 py-1 rounded-lg">{roomCode}</span>
-          <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-            <span className={`text-xs ${isLive ? 'text-green-400' : 'text-gray-500'}`}>{isLive ? 'Live' : 'Polling'}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-4">
-        <p className="text-gray-500 text-xs uppercase tracking-widest mb-4">Live Leaderboard</p>
-
-        <div className="flex flex-col gap-3">
-          {leaderboard.map((entry, i) => (
-            <div
-              key={entry.userId}
-              className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
-                entry.userId === userId ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-800/50'
-              }`}
-            >
-              <span className="text-lg w-8 text-center shrink-0">{positionBadge(entry, i)}</span>
-
-              <span className="text-white text-sm flex-1 truncate">
-                {entry.displayName}
-                {entry.userId === userId && <span className="text-green-400 text-xs ml-1">(you)</span>}
-              </span>
-
-              <div className="flex gap-1 shrink-0">
-                {[1, 2, 3].map((t) => (
-                  <div
-                    key={t}
-                    className={`w-3 h-3 rounded-sm transition-colors ${entry.tasksDone >= t ? 'bg-green-500' : 'bg-gray-700'}`}
-                  />
-                ))}
-              </div>
-
-              <span className="text-gray-400 text-xs w-14 text-right shrink-0">{entry.xpEarned} XP</span>
-
-              {entry.userId !== userId && entry.tasksDone === 0 && (
-                <button
-                  onClick={() => handleNudge(entry.userId)}
-                  disabled={nudgedUsers.has(entry.userId)}
-                  title={nudgedUsers.has(entry.userId) ? 'Nudged!' : 'Nudge to get started'}
-                  className={`text-sm shrink-0 transition-all ${
-                    nudgedUsers.has(entry.userId) ? 'opacity-40 cursor-default' : 'hover:scale-110 cursor-pointer'
-                  }`}
-                >
-                  👋
-                </button>
-              )}
+    <>
+      {/* Nav */}
+      <nav className="fixed top-0 w-full z-50 bg-surface/70 backdrop-blur-xl shadow-[0_20px_50px_rgba(63,72,73,0.06)]">
+        <div className="flex justify-between items-center px-6 lg:px-8 h-16 w-full max-w-[1440px] mx-auto">
+          <div className="flex items-center gap-8">
+            <span className="text-xl font-black text-primary tracking-tight">DevPath</span>
+            <div className="hidden md:flex items-center gap-6">
+              <Link className="text-on-surface-variant hover:text-primary transition-all duration-300 font-headline font-bold tracking-tight" href="/dashboard">Dashboard</Link>
+              <Link className="text-primary border-b-2 border-primary pb-1 font-headline font-bold tracking-tight" href="/room">Rooms</Link>
+              <Link className="text-on-surface-variant hover:text-primary transition-all duration-300 font-headline font-bold tracking-tight" href="/room/heatmap">Heatmap</Link>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-        <p className="text-gray-500 text-xs uppercase tracking-widest mb-4">Activity</p>
-
-        {feed.length === 0 ? (
-          <p className="text-gray-600 text-sm text-center py-4">No activity yet — be the first to complete a task!</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {feed.map((event) => (
-              <div key={event.id} className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full shrink-0 ${getEventDot(event.eventType)}`} />
-                <p className="text-gray-300 text-sm">{formatEventText(event)}</p>
-                <span className="text-gray-600 text-xs ml-auto shrink-0">
-                  {new Date(event.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              </div>
-            ))}
           </div>
-        )}
-      </div>
-    </main>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low">
+              <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-primary animate-pulse' : 'bg-outline'}`} />
+              <span className={`text-xs font-bold ${isLive ? 'text-primary' : 'text-on-surface-variant'}`}>
+                {isLive ? 'Live' : 'Polling'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="bg-surface-container-high h-px w-full opacity-20" />
+      </nav>
+
+      <main className="pt-24 pb-12 px-6 lg:px-8 max-w-[1440px] mx-auto min-h-screen">
+        {/* Room header */}
+        <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight text-on-background font-headline">{roomName}</h1>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-secondary-container rounded-full text-xs font-bold text-on-secondary-container uppercase tracking-wider">
+                {roomTypeLabel}
+              </span>
+            </div>
+            <p className="text-on-surface-variant text-sm">
+              {leaderboard.length} member{leaderboard.length !== 1 ? 's' : ''} competing
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-4 py-2.5 shadow-sm">
+              <span className="text-xs text-on-surface-variant font-bold uppercase tracking-wider">Code</span>
+              <span className="text-lg font-mono font-bold text-primary tracking-widest">{roomCode}</span>
+              <button
+                onClick={handleCopyCode}
+                className="ml-1 p-1 hover:bg-surface-container-high rounded-lg transition-colors active:scale-90"
+                title="Copy room code"
+              >
+                <span className="material-symbols-outlined text-sm text-primary">
+                  {codeCopied ? 'check' : 'content_copy'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main content grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+          {/* Leaderboard — main column */}
+          <div className="lg:col-span-8">
+            <div className="bg-surface-container-lowest rounded-xl border border-surface-container-high shadow-sm">
+              <div className="px-6 py-4 border-b border-surface-container-high flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary text-lg">leaderboard</span>
+                  <h2 className="text-lg font-bold text-on-background tracking-tight font-headline">Live Leaderboard</h2>
+                </div>
+                <span className="text-xs text-on-surface-variant">Today&apos;s standings</span>
+              </div>
+
+              <div className="p-4 lg:p-6">
+                {leaderboard.length === 0 ? (
+                  <p className="text-on-surface-variant text-sm text-center py-8">No members yet.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {leaderboard.map((entry, i) => {
+                      const isYou = entry.userId === userId;
+                      const posLabel = entry.tasksDone === 3
+                        ? entry.finishPosition === 1 ? '1st' : entry.finishPosition === 2 ? '2nd' : entry.finishPosition === 3 ? '3rd' : `${i + 1}`
+                        : entry.tasksDone > 0 ? `${i + 1}` : '—';
+                      const progressPct = Math.round((entry.tasksDone / 3) * 100);
+
+                      return (
+                        <div
+                          key={entry.userId}
+                          className={`flex items-center gap-4 p-4 rounded-xl transition-all ${
+                            isYou
+                              ? 'bg-primary/5 border border-primary/15 shadow-sm'
+                              : 'bg-surface-container-low hover:bg-surface-container'
+                          }`}
+                        >
+                          {/* Position */}
+                          <span className={`w-10 h-10 flex items-center justify-center rounded-full text-sm font-bold shrink-0 ${
+                            entry.finishPosition === 1
+                              ? 'bg-tertiary-container text-on-tertiary-container'
+                              : 'bg-surface-container-high text-on-surface-variant'
+                          }`}>
+                            {posLabel}
+                          </span>
+
+                          {/* Name + progress bar */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-sm font-semibold text-on-surface truncate">
+                                {entry.displayName}
+                              </span>
+                              {isYou && (
+                                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                  You
+                                </span>
+                              )}
+                            </div>
+                            <div className="w-full h-2 bg-surface-container rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  entry.tasksDone === 3 ? 'bg-primary' : 'bg-primary/60'
+                                }`}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Task dots */}
+                          <div className="flex gap-1.5 shrink-0">
+                            {[1, 2, 3].map((t) => (
+                              <div
+                                key={t}
+                                className={`w-3.5 h-3.5 rounded-full transition-colors ${
+                                  entry.tasksDone >= t ? 'bg-primary' : 'bg-surface-container-high'
+                                }`}
+                              />
+                            ))}
+                          </div>
+
+                          {/* XP */}
+                          <div className="text-right shrink-0 min-w-[60px]">
+                            <span className="text-sm font-bold text-primary">{entry.xpEarned}</span>
+                            <span className="text-xs text-on-surface-variant ml-1">XP</span>
+                          </div>
+
+                          {/* Nudge */}
+                          {!isYou && entry.tasksDone === 0 && (
+                            <button
+                              onClick={() => handleNudge(entry.userId)}
+                              disabled={nudgedUsers.has(entry.userId)}
+                              title={nudgedUsers.has(entry.userId) ? 'Nudged!' : 'Nudge to get started'}
+                              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${
+                                nudgedUsers.has(entry.userId)
+                                  ? 'bg-surface-container-high text-on-surface-variant opacity-50 cursor-default'
+                                  : 'bg-tertiary-container text-on-tertiary-container hover:shadow-md active:scale-95 cursor-pointer'
+                              }`}
+                            >
+                              {nudgedUsers.has(entry.userId) ? 'Nudged' : 'Nudge'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar — activity feed + share */}
+          <aside className="lg:col-span-4 flex flex-col gap-6">
+            {/* Share card */}
+            <div className="bg-surface-container-lowest rounded-xl border border-surface-container-high shadow-sm p-6">
+              <h3 className="text-sm font-bold text-on-background mb-3 font-headline">Invite Friends</h3>
+              <p className="text-xs text-on-surface-variant mb-4">
+                Share the room code to invite others to this sprint.
+              </p>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Join my DevPath room! Code: ${roomCode}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 bg-primary text-on-primary py-3 rounded-full font-bold text-sm tracking-wide transition-all hover:shadow-lg active:scale-[0.98]"
+              >
+                Share on WhatsApp
+                <span className="material-symbols-outlined text-sm">share</span>
+              </a>
+            </div>
+
+            {/* Activity feed */}
+            <div className="bg-surface-container-lowest rounded-xl border border-surface-container-high shadow-sm">
+              <div className="px-6 py-4 border-b border-surface-container-high flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-error rounded-full animate-pulse" />
+                  <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Live Feed</span>
+                </div>
+              </div>
+
+              <div className="p-4 lg:p-6">
+                {feed.length === 0 ? (
+                  <p className="text-on-surface-variant text-sm text-center py-6">
+                    No activity yet — be the first to complete a task!
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {feed.map((event) => (
+                      <div key={event.id} className="flex items-start gap-3">
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${getEventDot(event.eventType)}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-on-surface leading-snug">{formatEventText(event)}</p>
+                          <span className="text-[11px] text-on-surface-variant mt-0.5 block">
+                            {new Date(event.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </>
   );
 }
