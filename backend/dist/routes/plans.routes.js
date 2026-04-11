@@ -39,6 +39,27 @@ function getUserId(req, res) {
     }
     return userId;
 }
+async function fetchYouTubeVideoTitle(url) {
+    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    const videoId = videoIdMatch?.[1];
+    if (!videoId)
+        return null;
+    try {
+        const oEmbedUrl = `https://www.youtube.com/oembed` +
+            `?url=https://www.youtube.com/watch?v=${videoId}` +
+            `&format=json`;
+        const response = await fetch(oEmbedUrl);
+        if (!response.ok)
+            return null;
+        const data = await response.json();
+        return typeof data.title === 'string' && data.title.trim().length > 0
+            ? data.title
+            : null;
+    }
+    catch {
+        return null;
+    }
+}
 // ─── POST /api/plans/analyze-video ───────────────────────────────────────────
 /**
  * Step 1: Gemini watches the video, returns topic analysis + quiz questions
@@ -59,6 +80,17 @@ router.post('/analyze-video', (0, validate_1.validate)(analyzeVideoSchema), asyn
         return;
     }
     try {
+        const videoTitle = await fetchYouTubeVideoTitle(url);
+        const validation = await (0, gemini_service_1.validateEducationalContent)(url, videoTitle ?? undefined);
+        if (!validation.isEducational) {
+            res.status(422).json({
+                error: 'non_educational_content',
+                message: "This doesn't look like educational content. DevPath only supports technical and coding tutorials.",
+                category: validation.category,
+                reason: validation.reason,
+            });
+            return;
+        }
         const result = await (0, gemini_service_1.analyzeVideoForQuiz)(url);
         res.status(200).json({
             analysis: result.analysis,

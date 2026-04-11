@@ -92,6 +92,115 @@ export async function parseVideoUrl(url: string): Promise<Record<string, unknown
     return extractJson(text);
 }
 
+export interface ContentValidationResult {
+  isEducational: boolean;
+  category: string;
+  reason: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+/**
+ * Validates whether a YouTube URL contains educational/technical content before parsing.
+ * Uses Gemini Flash (cheap + fast) for this check.
+ * Returns isEducational: false for songs, movies, vlogs, gaming, entertainment etc.
+ */
+export async function validateEducationalContent(
+  url: string,
+  videoTitle?: string,
+): Promise<ContentValidationResult> {
+  console.log('[Gemini:validate] Checking URL:', url);
+  console.log('[Gemini:validate] Title hint:', videoTitle ?? 'none');
+
+  const context = videoTitle
+    ? `Video title: "${videoTitle}"\nURL: ${url}`
+    : `URL: ${url}`;
+
+  const prompt = `You are a content classifier for a coding education platform.
+
+Analyze this YouTube video and determine if it is educational or technical content suitable for a coding learning platform.
+
+${context}
+
+ALLOWED content types:
+- Programming tutorials (any language)
+- Data structures and algorithms
+- Web development (frontend, backend, fullstack)
+- System design and architecture
+- Computer science concepts
+- DevOps, cloud, databases
+- Math or science tutorials
+- Any technical skill-building content
+- Coding interview preparation
+- Software engineering concepts
+
+NOT ALLOWED content types:
+- Music videos or songs
+- Movies or TV show clips
+- Gaming/entertainment streams
+- Vlogs or lifestyle content
+- Sports videos
+- Comedy or meme videos
+- News or politics
+- Cooking or food content
+- Any non-technical entertainment
+
+Return ONLY valid JSON with no markdown:
+{
+  "isEducational": boolean,
+  "category": "string (e.g. DSA Tutorial, Music Video, Vlog, Python Course)",
+  "reason": "string (one sentence explaining the decision)",
+  "confidence": "high" | "medium" | "low"
+}`;
+
+  try {
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+    });
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    console.log('[Gemini:validate] Raw response:', text);
+
+    const cleaned = text
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    const parsed = JSON.parse(cleaned) as Partial<ContentValidationResult>;
+
+    const normalized: ContentValidationResult = {
+      isEducational: parsed.isEducational === true,
+      category: typeof parsed.category === 'string' && parsed.category.trim().length > 0
+        ? parsed.category.trim()
+        : 'unknown',
+      reason: typeof parsed.reason === 'string' && parsed.reason.trim().length > 0
+        ? parsed.reason.trim()
+        : 'No reason provided',
+      confidence: parsed.confidence === 'high' || parsed.confidence === 'medium' || parsed.confidence === 'low'
+        ? parsed.confidence
+        : 'low',
+    };
+
+    console.log(
+      '[Gemini:validate] Result:',
+      normalized.isEducational ? '✅ Educational' : '❌ Not educational',
+      '-',
+      normalized.category,
+      `(${normalized.confidence})`,
+    );
+
+    return normalized;
+  } catch (err) {
+    console.error('[Gemini:validate] Failed:', err);
+    return {
+      isEducational: true,
+      category: 'unknown',
+      reason: 'Validation check failed — proceeding with parse',
+      confidence: 'low',
+    };
+  }
+}
+
 export async function parseVideoUrlRaw(url: string): Promise<string> {
   console.log('═══════════════════════════════════');
   console.log('[Gemini:parseVideo] START');

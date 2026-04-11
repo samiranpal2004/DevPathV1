@@ -6,6 +6,7 @@ import {
     analyzeVideoForQuiz,
     generatePersonalizedPlan,
     isQuotaError,
+    validateEducationalContent,
 } from '../services/gemini.service';
 import type { VideoAnalysis } from '../services/gemini.service';
 import { storePlanKeepExisting, validateParsedPlan } from '../services/parser.service';
@@ -46,6 +47,30 @@ function getUserId(req: Request, res: Response): string | null {
     return userId;
 }
 
+async function fetchYouTubeVideoTitle(url: string): Promise<string | null> {
+    const videoIdMatch = url.match(
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    );
+    const videoId = videoIdMatch?.[1];
+    if (!videoId) return null;
+
+    try {
+        const oEmbedUrl =
+            `https://www.youtube.com/oembed` +
+            `?url=https://www.youtube.com/watch?v=${videoId}` +
+            `&format=json`;
+        const response = await fetch(oEmbedUrl);
+        if (!response.ok) return null;
+
+        const data = await response.json() as { title?: string };
+        return typeof data.title === 'string' && data.title.trim().length > 0
+            ? data.title
+            : null;
+    } catch {
+        return null;
+    }
+}
+
 // ─── POST /api/plans/analyze-video ───────────────────────────────────────────
 /**
  * Step 1: Gemini watches the video, returns topic analysis + quiz questions
@@ -68,6 +93,18 @@ router.post('/analyze-video', validate(analyzeVideoSchema), async (req: Request,
     }
 
     try {
+        const videoTitle = await fetchYouTubeVideoTitle(url);
+        const validation = await validateEducationalContent(url, videoTitle ?? undefined);
+        if (!validation.isEducational) {
+            res.status(422).json({
+                error: 'non_educational_content',
+                message: "This doesn't look like educational content. DevPath only supports technical and coding tutorials.",
+                category: validation.category,
+                reason: validation.reason,
+            });
+            return;
+        }
+
         const result = await analyzeVideoForQuiz(url);
         res.status(200).json({
             analysis: result.analysis,

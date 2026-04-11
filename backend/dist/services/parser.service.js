@@ -59,6 +59,27 @@ async function getCachedPlan(url, userId) {
         .single();
     return data || null;
 }
+async function fetchYouTubeVideoTitle(url) {
+    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    const videoId = videoIdMatch?.[1];
+    if (!videoId)
+        return null;
+    try {
+        const oEmbedUrl = `https://www.youtube.com/oembed` +
+            `?url=https://www.youtube.com/watch?v=${videoId}` +
+            `&format=json`;
+        const response = await fetch(oEmbedUrl);
+        if (!response.ok)
+            return null;
+        const data = await response.json();
+        return typeof data.title === 'string' && data.title.trim().length > 0
+            ? data.title
+            : null;
+    }
+    catch {
+        return null;
+    }
+}
 /**
  * Store a parsed plan in daily_plans.
  */
@@ -139,6 +160,18 @@ async function parseUrl(userId, url, skillTier = 'beginner', fallbackTopic = nul
             usedFallback = 'topic';
         }
         else {
+            console.log('[Parser] Running content validation...');
+            const videoTitle = await fetchYouTubeVideoTitle(url);
+            const validation = await (0, gemini_service_1.validateEducationalContent)(url, videoTitle ?? undefined);
+            if (!validation.isEducational) {
+                console.warn('[Parser] Content rejected:', validation.category, '-', validation.reason);
+                const nonEducationalError = new Error(validation.reason);
+                nonEducationalError.code = 'non_educational_content';
+                nonEducationalError.category = validation.category;
+                nonEducationalError.reason = validation.reason;
+                throw nonEducationalError;
+            }
+            console.log('[Parser] Content validated ✅:', validation.category, `(${validation.confidence})`);
             const rawParserResponse = await (0, gemini_service_1.parseVideoUrlRaw)(url);
             try {
                 parsedPlan = safeParseGeminiJson(rawParserResponse);
@@ -152,6 +185,9 @@ async function parseUrl(userId, url, skillTier = 'beginner', fallbackTopic = nul
         validateParsedPlan(parsedPlan);
     }
     catch (err) {
+        if (err.code === 'non_educational_content') {
+            throw err;
+        }
         if ((0, gemini_service_1.isQuotaError)(err)) {
             // Step 5 — quota fallback: default plan
             console.error('[Parser] ❌ All Gemini calls failed');

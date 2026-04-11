@@ -11,7 +11,12 @@
  */
 import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabase';
-import { parseVideoUrlRaw, generateTopicCurriculumRaw, isQuotaError } from './gemini.service';
+import {
+    parseVideoUrlRaw,
+    generateTopicCurriculumRaw,
+    isQuotaError,
+    validateEducationalContent,
+} from './gemini.service';
 import { detectUrlType } from './onboarding.service';
 import { getDefaultPlan, DefaultPlan } from '../data/default-plans';
 
@@ -19,6 +24,12 @@ export interface ParseResult {
     plan: Record<string, unknown>;
     fromCache: boolean;
     fallback: string | null;
+}
+
+interface ParserTypedError extends Error {
+    code?: string;
+    category?: string;
+    reason?: string;
 }
 
 function safeParseGeminiJson(raw: string): unknown {
@@ -57,6 +68,31 @@ async function getCachedPlan(url: string, userId: string): Promise<Record<string
         .limit(1)
         .single();
     return (data as Record<string, unknown>) || null;
+}
+
+async function fetchYouTubeVideoTitle(url: string): Promise<string | null> {
+    const videoIdMatch = url.match(
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    );
+    const videoId = videoIdMatch?.[1];
+
+    if (!videoId) return null;
+
+    try {
+        const oEmbedUrl =
+            `https://www.youtube.com/oembed` +
+            `?url=https://www.youtube.com/watch?v=${videoId}` +
+            `&format=json`;
+        const response = await fetch(oEmbedUrl);
+        if (!response.ok) return null;
+
+        const data = await response.json() as { title?: string };
+        return typeof data.title === 'string' && data.title.trim().length > 0
+            ? data.title
+            : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -163,6 +199,21 @@ export async function parseUrl(
             parsedPlan = safeParseGeminiJson(rawTopicResponse) as Record<string, unknown>;
             usedFallback = 'topic';
         } else {
+            console.log('[Parser] Running content validation...');
+            const videoTitle = await fetchYouTubeVideoTitle(url);
+            const validation = await validateEducationalContent(url, videoTitle ?? undefined);
+
+            if (!validation.isEducational) {
+                console.warn('[Parser] Content rejected:', validation.category, '-', validation.reason);
+                const nonEducationalError = new Error(validation.reason) as ParserTypedError;
+                nonEducationalError.code = 'non_educational_content';
+                nonEducationalError.category = validation.category;
+                nonEducationalError.reason = validation.reason;
+                throw nonEducationalError;
+            }
+
+            console.log('[Parser] Content validated ✅:', validation.category, `(${validation.confidence})`);
+
             const rawParserResponse = await parseVideoUrlRaw(url);
             try {
                 parsedPlan = safeParseGeminiJson(rawParserResponse) as Record<string, unknown>;
@@ -174,6 +225,10 @@ export async function parseUrl(
         }
         validateParsedPlan(parsedPlan);
     } catch (err) {
+        if ((err as ParserTypedError).code === 'non_educational_content') {
+            throw err;
+        }
+
         if (isQuotaError(err)) {
             // Step 5 — quota fallback: default plan
             console.error('[Parser] ❌ All Gemini calls failed');

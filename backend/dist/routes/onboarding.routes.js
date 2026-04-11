@@ -118,6 +118,16 @@ router.post('/parse-url', (0, validate_1.validate)(onboarding_1.parseUrlSchema),
         });
     }
     catch (err) {
+        if (err.code === 'non_educational_content') {
+            const typedErr = err;
+            res.status(422).json({
+                error: 'non_educational_content',
+                message: "This doesn't look like educational content. DevPath only supports technical and coding tutorials.",
+                category: typedErr.category,
+                reason: typedErr.reason,
+            });
+            return;
+        }
         if (err.code === 'unsupported_url') {
             res.status(422).json({
                 error: 'unsupported_url',
