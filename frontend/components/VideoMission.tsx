@@ -184,13 +184,26 @@ export function VideoMission() {
       setSelectedOption(null);
       setFlowStep('quiz');
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: string } } };
-      if (axiosErr.response?.data?.error === 'unsupported_url') {
+      const axiosErr = err as {
+        response?: {
+          data?: {
+            error?: string;
+            message?: string;
+            category?: string;
+          };
+        };
+      };
+      if (axiosErr.response?.data?.error === 'non_educational_content') {
+        const category = axiosErr.response?.data?.category ?? 'This video';
+        setError(
+          `❌ "${category}" isn't supported. DevPath only works with coding and tech tutorials. Try a programming course or tutorial instead.`
+        );
+      } else if (axiosErr.response?.data?.error === 'unsupported_url') {
         setError("That URL isn't supported. Try a YouTube video or playlist link.");
       } else if (axiosErr.response?.data?.error === 'quota_exceeded') {
         setError('Gemini quota reached. Please try again later.');
       } else {
-        setError('Failed to analyze video. Please try again.');
+        setError(axiosErr.response?.data?.message ?? 'Failed to analyze video. Please try again.');
       }
     } finally {
       setIsAnalyzing(false);

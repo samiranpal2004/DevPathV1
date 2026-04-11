@@ -123,6 +123,21 @@ router.post('/parse-url', validate(parseUrlSchema), async (req: Request, res: Re
                 : [],
         });
     } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'non_educational_content') {
+            const typedErr = err as {
+                code: string;
+                category: string;
+                reason: string;
+            };
+            res.status(422).json({
+                error: 'non_educational_content',
+                message: "This doesn't look like educational content. DevPath only supports technical and coding tutorials.",
+                category: typedErr.category,
+                reason: typedErr.reason,
+            });
+            return;
+        }
+
         if ((err as NodeJS.ErrnoException).code === 'unsupported_url') {
             res.status(422).json({
                 error: 'unsupported_url',
